@@ -372,11 +372,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         )
 
-        panel.onPanelMoved = { [weak self, weak panel] in
-            guard let panel else { return }
-            self?.handlePanelMoved(group: group, panel: panel)
-        }
-
         tabBarPanels[group.id] = panel
 
         for window in group.windows {
@@ -529,8 +524,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func handleHotkeySwitchToTab(_ index: Int) {
         guard let (group, panel) = activeGroup(),
-              index >= 0, index < group.windows.count else { return }
-        switchTab(in: group, to: index, panel: panel)
+              index >= 0, !group.windows.isEmpty else { return }
+        // Hyper 9 (index 8) always goes to last tab
+        let targetIndex = (index == 8) ? group.windows.count - 1 : index
+        guard targetIndex < group.windows.count else { return }
+        switchTab(in: group, to: targetIndex, panel: panel)
     }
 
     /// Handle group dissolution: expand the last surviving window upward into tab bar space,
@@ -609,37 +607,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             suppressionWorkItems[id] = workItem
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
-        }
-    }
-
-    // MARK: - Panel Drag
-
-    private func handlePanelMoved(group: TabGroup, panel: TabBarPanel) {
-        let panelFrame = panel.frame
-        let tabBarHeight = TabBarPanel.tabBarHeight
-
-        // Convert panel's AppKit frame to AX coordinates for the window area below it
-        let windowOriginAX = CoordinateConverter.appKitToAX(
-            point: CGPoint(x: panelFrame.origin.x, y: panelFrame.origin.y),
-            windowHeight: tabBarHeight
-        )
-        let windowFrame = CGRect(
-            x: windowOriginAX.x,
-            y: windowOriginAX.y + tabBarHeight,
-            width: panelFrame.width,
-            height: group.frame.height
-        )
-
-        group.frame = windowFrame
-        suppressNotifications(for: group.windows.map(\.id))
-
-        for window in group.windows {
-            AccessibilityHelper.setFrame(of: window.element, to: windowFrame)
-        }
-
-        if let activeWindow = group.activeWindow {
-            raiseAndUpdate(activeWindow, in: group)
-            panel.orderAbove(windowID: activeWindow.id)
         }
     }
 
