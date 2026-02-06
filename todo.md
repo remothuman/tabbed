@@ -1,6 +1,8 @@
 # Todo
-- when adding a window switch to it's tab automatically
-- add a button in initial window picker to add all windows in space and create
+    - fill out keyboard shortcuts
+        - 9 should be last always
+        - think of any others to mirror browsers
+        
 
 
 - investigate a way to hide non active windows completely (maybe settle for minimizing). esp so that it doesnt show up in AltTab (and mission control etc) and instead the metawindow is what shows up
@@ -28,8 +30,11 @@
     - maybe: add a window-wide close/release all windows button
 - change x icon on tab which frees the window, change it to a - icon or another icon we find
 
+- window switcher ui instead of remembering
 
 - duplicate app protection story
+
+- consider moving swiftui to appkit - swiftui we have lifecycle hacks right now and not that much code in it
 
 
 
