@@ -6,7 +6,9 @@
       "Bash(brew list:*)",
       "Bash(xcodegen generate:*)",
       "Bash(xcodebuild:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(git -C /Users/tmn/ccode/tabbed/version-a log --oneline -20)",
+      "Bash(wc:*)"
     ]
   }
 }
