@@ -43,6 +43,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSWorkspace.didTerminateApplicationNotification,
             object: nil
         )
+
+        // Watch for app activation (dock clicks, Cmd-Tab, links from other apps).
+        // kAXFocusedWindowChangedNotification only fires when the focused window
+        // *within* an app changes — not when the app merely re-activates with the
+        // same focused window. This observer covers that gap.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleAppActivated(_:)),
+            name: NSWorkspace.didActivateApplicationNotification,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -441,6 +452,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
            let newTitle = AccessibilityHelper.getTitle(of: group.windows[index].element) {
             group.windows[index].title = newTitle
         }
+    }
+
+    @objc private func handleAppActivated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let pid = app.processIdentifier
+
+        // Query which window the activated app considers focused
+        let appElement = AccessibilityHelper.appElement(for: pid)
+        var focusedValue: AnyObject?
+        let result = AXUIElementCopyAttributeValue(
+            appElement, kAXFocusedWindowAttribute as CFString, &focusedValue
+        )
+        guard result == .success, let focusedValue else { return }
+        let windowElement = focusedValue as! AXUIElement
+
+        guard let windowID = AccessibilityHelper.windowID(for: windowElement),
+              let group = groupManager.group(for: windowID),
+              let panel = tabBarPanels[group.id] else { return }
+
+        group.switchTo(windowID: windowID)
+        panel.orderAbove(windowID: windowID)
     }
 
     @objc private func handleAppTerminated(_ notification: Notification) {
