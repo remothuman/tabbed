@@ -2,20 +2,52 @@ import SwiftUI
 
 struct SettingsView: View {
     @State private var config: ShortcutConfig
+    @State private var sessionConfig: SessionConfig
     @State private var recordingAction: ShortcutAction?
     var onConfigChanged: (ShortcutConfig) -> Void
+    var onSessionConfigChanged: (SessionConfig) -> Void
 
-    init(config: ShortcutConfig, onConfigChanged: @escaping (ShortcutConfig) -> Void) {
+    init(
+        config: ShortcutConfig,
+        sessionConfig: SessionConfig,
+        onConfigChanged: @escaping (ShortcutConfig) -> Void,
+        onSessionConfigChanged: @escaping (SessionConfig) -> Void
+    ) {
         self._config = State(initialValue: config)
+        self._sessionConfig = State(initialValue: sessionConfig)
         self.onConfigChanged = onConfigChanged
+        self.onSessionConfigChanged = onSessionConfigChanged
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Keyboard Shortcuts")
+            Text("Session Restore")
                 .font(.headline)
                 .padding(.top, 16)
+                .padding(.bottom, 8)
+
+            Picker("On Launch", selection: $sessionConfig.restoreMode) {
+                Text("Smart").tag(RestoreMode.smart)
+                Text("Always").tag(RestoreMode.always)
+                Text("Off").tag(RestoreMode.off)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+
+            Text(restoreModeDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
                 .padding(.bottom, 12)
+
+            Divider()
+
+            Text("Keyboard Shortcuts")
+                .font(.headline)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
 
             Divider()
 
@@ -54,7 +86,10 @@ struct SettingsView: View {
             }
             .padding(12)
         }
-        .frame(width: 400, height: 420)
+        .frame(width: 400, height: 520)
+        .onChange(of: sessionConfig.restoreMode) { _ in
+            onSessionConfigChanged(sessionConfig)
+        }
         .background(ShortcutRecorderBridge(
             isRecording: recordingAction != nil,
             onKeyDown: { event in
@@ -68,6 +103,17 @@ struct SettingsView: View {
                 recordingAction = nil
             }
         ))
+    }
+
+    private var restoreModeDescription: String {
+        switch sessionConfig.restoreMode {
+        case .smart:
+            return "Restore groups on launch only when all windows match exactly."
+        case .always:
+            return "Always restore groups, even if some windows are missing."
+        case .off:
+            return "Never auto-restore. Use the menu bar button to restore manually."
+        }
     }
 
     private func shortcutRow(_ action: ShortcutAction) -> some View {

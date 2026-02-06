@@ -2,9 +2,11 @@ import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject var groupManager: GroupManager
+    @ObservedObject var sessionState: SessionState
 
     var onNewGroup: () -> Void
     var onAllInSpace: () -> Void
+    var onRestoreSession: () -> Void
     var onFocusWindow: (WindowInfo) -> Void
     var onDisbandGroup: (TabGroup) -> Void
     var onSettings: () -> Void
@@ -29,6 +31,12 @@ struct MenuBarView: View {
 
             menuItem("All in Space", systemImage: "rectangle.stack.fill") {
                 onAllInSpace()
+            }
+
+            if sessionState.hasPendingSession {
+                menuItem("Restore Previous Session", systemImage: "arrow.counterclockwise") {
+                    onRestoreSession()
+                }
             }
 
             Divider()

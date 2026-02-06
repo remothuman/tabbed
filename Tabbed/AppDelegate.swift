@@ -146,10 +146,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let snapshots = SessionManager.loadSession() {
             if sessionConfig.restoreMode == .smart || sessionConfig.restoreMode == .always {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.restoreSession(snapshots: snapshots, mode: sessionConfig.restoreMode)
+                    guard let self else { return }
+                    self.restoreSession(snapshots: snapshots, mode: sessionConfig.restoreMode)
+                    // In smart mode, show manual restore button only if some groups failed
+                    if sessionConfig.restoreMode == .smart,
+                       self.groupManager.groups.count < snapshots.count {
+                        self.pendingSessionSnapshots = snapshots
+                        self.sessionState.hasPendingSession = true
+                    }
                 }
             }
-            if sessionConfig.restoreMode == .smart || sessionConfig.restoreMode == .off {
+            if sessionConfig.restoreMode == .off {
                 pendingSessionSnapshots = snapshots
                 sessionState.hasPendingSession = true
             }
