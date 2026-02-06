@@ -9,7 +9,10 @@
       "Bash(open:*)",
       "Bash(git -C /Users/tmn/ccode/tabbed/version-a log --oneline -20)",
       "Bash(wc:*)",
-      "Bash(git -C /Users/tmn/ccode/tabbed/version-a show --stat e39df25)"
+      "Bash(git -C /Users/tmn/ccode/tabbed/version-a show --stat e39df25)",
+      "Bash(security find-identity:*)",
+      "Bash(security find-certificate:*)",
+      "Bash(openssl x509:*)"
     ]
   }
 }

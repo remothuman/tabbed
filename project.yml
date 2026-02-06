@@ -17,8 +17,7 @@ targets:
       base:
         INFOPLIST_FILE: Tabbed/Info.plist
         CODE_SIGN_ENTITLEMENTS: Tabbed/Tabbed.entitlements
-        CODE_SIGN_IDENTITY: "Apple Development"
-        DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
+        CODE_SIGN_IDENTITY: "-"
         PRODUCT_BUNDLE_IDENTIFIER: com.tabbed.Tabbed
     entitlements:
       path: Tabbed/Tabbed.entitlements
