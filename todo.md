@@ -8,20 +8,40 @@
 - investigate a way to hide non active windows completely (maybe settle for minimizing). esp so that it doesnt show up in AltTab (and mission control etc) and instead the metawindow is what shows up
     - int his case also customize the window name maybe?
     - can hide with the undocumented CGS private APIs
+    
+
+
+- change design
+    - maybe make settings to cycle between many different design stlyles, to prototype them out, then pick one (or two?) and delete rest
+        - what we have now
+        - one that is like what we have now but with max length of tabs, draggable rest of the area
+        - one that is like chrome tabs, but do not paint over rest of area
+            - (inspired by ultrasnapper screenshots)
+        - 3 more wildcard designs (be creative make them different from each other)
+
 
 ## Bugs
-- Maybe: remove the functionality of increasing app size once freed. often covers up tab bar of other windows.
-    - when quitting tabbed all together it is still good
 - maybe: dragging the tab bar container does not drag the windows  (currently can no longer even drag it so its fine)
 
-❯ bugs: 
-    - initial positioning can be a little wrong too low etc
+- on add, is squeezes windows down to make room for tab bar even if there is space for tab bar already, should just show it on top instead
 
-    - closing settings quits the whole app
+- some special apps such as altTab the window close detection does not work
+
+❯ bugs: 
+    - initial positioning can be a little wrong too low etc - check if still true
     
-    - going from focus on non-grouped app into grouped app not by clicking can leave non grouped app obsuring the tab bar - or something like that
+    - going from focus on non-grouped app that is on top of tab bar into grouped app not by clicking can leave non grouped app obsuring the tab bar - or something like that
+
+
 
 ## Maybe:
+- maybe behave differently in "fullscreen"?
+    - feature: for windows that can't be resized, if we are in fullscreen view do not move them when added instead just switch between them, allow them to be moved without resizing all other windows (only under specific circumastances though)
+        - maybe even don't resize windows at all in fullscreen, just keep the menubar at the top and switch active windows without resizing other windows, (but only in fullscreen mode), maybe adding unecessary complexity.
+- related feature: if all tabs in a space are part of metawindow, (and if it's fullsecreen?) all newly opened apps join the metawindow automatically
+
+- maybe add all in space should be menu bar level quick shortcut
+    - maybe skip those with a minimum size?
 
 - option launch an app in addition to capturing an existing app
 

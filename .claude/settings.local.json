@@ -26,7 +26,8 @@
       "Bash(git -C /Users/tmn/ccode/tabbed/version-a add:*)",
       "Bash(git -C /Users/tmn/ccode/tabbed/version-a commit:*)",
       "Bash(git -C /Users/tmn/ccode/tabbed/version-a diff --staged)",
-      "Bash(git -C /Users/tmn/ccode/tabbed/version-a diff Tabbed/AppDelegate.swift)"
+      "Bash(git -C /Users/tmn/ccode/tabbed/version-a diff Tabbed/AppDelegate.swift)",
+      "Bash(defaults read:*)"
     ]
   }
 }
