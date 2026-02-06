@@ -108,7 +108,7 @@ struct SettingsView: View {
     private var restoreModeDescription: String {
         switch sessionConfig.restoreMode {
         case .smart:
-            return "Restore groups on launch only when all windows match exactly."
+            return "Restore groups when all their apps are still running."
         case .always:
             return "Always restore groups, even if some windows are missing."
         case .off:

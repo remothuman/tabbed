@@ -59,14 +59,15 @@ enum SessionManager {
                 continue
             }
 
-            // In "always" mode, fall back to bundleID-only
-            if mode == .always, let fallback = candidates.first {
+            // Fall back to bundleID-only match
+            if let fallback = candidates.first {
                 matched.append(fallback)
                 claimed.insert(fallback.id)
                 continue
             }
 
-            // Smart mode: ALL must match, so fail the whole group
+            // No candidates at all (app not running).
+            // Smart mode: ALL apps must be present, so fail the whole group.
             if mode == .smart {
                 return nil
             }
