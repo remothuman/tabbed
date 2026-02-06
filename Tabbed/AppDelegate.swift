@@ -502,8 +502,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let result = AXUIElementCopyAttributeValue(
             appElement, kAXFocusedWindowAttribute as CFString, &focusedValue
         )
-        guard result == .success, let focusedValue else { return }
-        let windowElement = focusedValue as! AXUIElement
+        guard result == .success,
+              let windowElement = focusedValue as? AXUIElement else { return }
 
         guard let windowID = AccessibilityHelper.windowID(for: windowElement),
               let group = groupManager.group(for: windowID),
@@ -524,10 +524,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 windowObserver.handleDestroyedWindow(pid: pid, elementHash: CFHash(window.element))
                 groupManager.releaseWindow(withID: window.id, from: group)
             }
-            // If group was dissolved, expand surviving window and clean up panel
+            // If group was dissolved, clean up the panel (and expand
+            // the surviving window if it belongs to a different app).
             if !groupManager.groups.contains(where: { $0.id == group.id }),
                let panel = tabBarPanels[group.id] {
-                handleGroupDissolution(group: group, panel: panel)
+                if let survivor = group.windows.first, survivor.ownerPID != pid {
+                    handleGroupDissolution(group: group, panel: panel)
+                } else {
+                    // All remaining windows are from the terminated app —
+                    // nothing to expand, just tear down the panel.
+                    panel.close()
+                    tabBarPanels.removeValue(forKey: group.id)
+                }
             } else if let panel = tabBarPanels[group.id],
                       let newActive = group.activeWindow {
                 raiseAndUpdate(newActive, in: group)
