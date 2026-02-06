@@ -121,16 +121,6 @@ enum AccessibilityHelper {
         setPosition(of: element, to: frame.origin)
     }
 
-    /// Sets the frame, then reads back the size to confirm the app accepted it.
-    /// Returns the actual frame (which may differ if the app enforces min/max sizes).
-    @discardableResult
-    static func setFrameAndVerify(of element: AXUIElement, to frame: CGRect) -> CGRect {
-        setFrame(of: element, to: frame)
-        let actualSize = getSize(of: element) ?? frame.size
-        let actualPosition = getPosition(of: element) ?? frame.origin
-        return CGRect(origin: actualPosition, size: actualSize)
-    }
-
     // MARK: - Actions
 
     @discardableResult

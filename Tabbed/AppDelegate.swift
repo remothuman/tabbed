@@ -439,6 +439,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if !groupManager.groups.contains(where: { $0.id == group.id }),
                let panel = tabBarPanels.removeValue(forKey: group.id) {
                 panel.close()
+            } else if let panel = tabBarPanels[group.id],
+                      let newActive = group.activeWindow {
+                AccessibilityHelper.raiseWindow(newActive)
+                panel.orderAbove(windowID: newActive.id)
             }
         }
     }
