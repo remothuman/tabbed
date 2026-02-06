@@ -353,6 +353,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
         groupManager.addWindow(window, to: group)
         windowObserver.observe(window: window)
+
+        // Switch to the newly added tab
+        let newIndex = group.windows.count - 1
+        group.switchTo(index: newIndex)
+        lastActiveGroupID = group.id
+        raiseAndUpdate(window, in: group)
+        if let panel = tabBarPanels[group.id] {
+            panel.orderAbove(windowID: window.id)
+        }
     }
 
     // MARK: - Hotkey Actions
