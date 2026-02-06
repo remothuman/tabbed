@@ -194,15 +194,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         windowObserver.stopAll()
         // Expand all grouped windows upward to reclaim tab bar space
-        let tabBarHeight = TabBarPanel.tabBarHeight
         for group in groupManager.groups {
+            let delta = group.tabBarSqueezeDelta
+            guard delta > 0 else { continue }
             for window in group.windows {
                 if let frame = AccessibilityHelper.getFrame(of: window.element) {
                     let expandedFrame = CGRect(
                         x: frame.origin.x,
-                        y: frame.origin.y - tabBarHeight,
+                        y: frame.origin.y - delta,
                         width: frame.width,
-                        height: frame.height + tabBarHeight
+                        height: frame.height + delta
                     )
                     AccessibilityHelper.setFrame(of: window.element, to: expandedFrame)
                 }
@@ -337,15 +338,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let first = windows.first,
               let firstFrame = AccessibilityHelper.getFrame(of: first.element) else { return }
 
-        let tabBarHeight = TabBarPanel.tabBarHeight
-        let windowFrame = CGRect(
-            x: firstFrame.origin.x,
-            y: firstFrame.origin.y + tabBarHeight,
-            width: firstFrame.width,
-            height: firstFrame.height - tabBarHeight
-        )
+        let windowFrame = clampFrameForTabBar(firstFrame)
+        let squeezeDelta = windowFrame.origin.y - firstFrame.origin.y
 
         guard let group = groupManager.createGroup(with: windows, frame: windowFrame) else { return }
+        group.tabBarSqueezeDelta = squeezeDelta
 
         // Suppress notifications while we sync frames to prevent observer races
         suppressNotifications(for: group.windows.map(\.id))
@@ -543,15 +540,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         resyncWorkItems[group.id]?.cancel()
         resyncWorkItems.removeValue(forKey: group.id)
 
-        let tabBarHeight = TabBarPanel.tabBarHeight
+        let delta = group.tabBarSqueezeDelta
         if let lastWindow = group.windows.first {
             windowObserver.stopObserving(window: lastWindow)
-            if let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
+            if delta > 0, let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
                 let expandedFrame = CGRect(
                     x: lastFrame.origin.x,
-                    y: lastFrame.origin.y - tabBarHeight,
+                    y: lastFrame.origin.y - delta,
                     width: lastFrame.width,
-                    height: lastFrame.height + tabBarHeight
+                    height: lastFrame.height + delta
                 )
                 AccessibilityHelper.setFrame(of: lastWindow.element, to: expandedFrame)
             }
@@ -572,15 +569,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         resyncWorkItems[group.id]?.cancel()
         resyncWorkItems.removeValue(forKey: group.id)
 
-        let tabBarHeight = TabBarPanel.tabBarHeight
+        let delta = group.tabBarSqueezeDelta
         for window in group.windows {
             windowObserver.stopObserving(window: window)
-            if let frame = AccessibilityHelper.getFrame(of: window.element) {
+            if delta > 0, let frame = AccessibilityHelper.getFrame(of: window.element) {
                 let expandedFrame = CGRect(
                     x: frame.origin.x,
-                    y: frame.origin.y - tabBarHeight,
+                    y: frame.origin.y - delta,
                     width: frame.width,
-                    height: frame.height + tabBarHeight
+                    height: frame.height + delta
                 )
                 AccessibilityHelper.setFrame(of: window.element, to: expandedFrame)
             }

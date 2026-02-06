@@ -6,6 +6,8 @@ class TabGroup: Identifiable, ObservableObject {
     @Published var windows: [WindowInfo]
     @Published var activeIndex: Int
     @Published var frame: CGRect
+    /// How many pixels the window was squeezed down when the group was created (0 if no squeeze was needed).
+    var tabBarSqueezeDelta: CGFloat = 0
 
     /// MRU focus history — most recently focused window ID first.
     private(set) var focusHistory: [CGWindowID] = []
