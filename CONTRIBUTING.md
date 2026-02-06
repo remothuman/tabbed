@@ -26,7 +26,7 @@ Then build and run:
 
 Grant Accessibility permissions when prompted (System Settings > Privacy & Security > Accessibility). With code signing configured, this only needs to be done once.
 
-## Running Tests
+## Running the App (without rebuilding)
 
 ```sh
 ./run.sh

@@ -3,7 +3,7 @@ set -e
 
 # Load developer-specific settings
 if [ -f .env ]; then
-  export $(cat .env | xargs)
+  export $(grep -v '^\s*#' .env | grep -v '^\s*$' | xargs)
 fi
 
 if [ -z "$DEVELOPMENT_TEAM" ]; then

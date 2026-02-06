@@ -486,10 +486,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 windowObserver.handleDestroyedWindow(pid: pid, elementHash: CFHash(window.element))
                 groupManager.releaseWindow(withID: window.id, from: group)
             }
-            // If group was dissolved, clean up the panel
+            // If group was dissolved, expand surviving window and clean up panel
             if !groupManager.groups.contains(where: { $0.id == group.id }),
-               let panel = tabBarPanels.removeValue(forKey: group.id) {
-                panel.close()
+               let panel = tabBarPanels[group.id] {
+                handleGroupDissolution(group: group, panel: panel)
             } else if let panel = tabBarPanels[group.id],
                       let newActive = group.activeWindow {
                 raiseAndUpdate(newActive, in: group)
