@@ -1,7 +1,10 @@
 import AppKit
+import SwiftUI
 
 class TabBarPanel: NSPanel {
     static let tabBarHeight: CGFloat = 36
+
+    private var visualEffectView: NSVisualEffectView!
 
     init() {
         super.init(
@@ -29,6 +32,31 @@ class TabBarPanel: NSPanel {
         visualEffect.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         visualEffect.layer?.cornerRadius = 8
         self.contentView?.addSubview(visualEffect, positioned: .below, relativeTo: nil)
+        self.visualEffectView = visualEffect
+    }
+
+    func setContent(
+        group: TabGroup,
+        onSwitchTab: @escaping (Int) -> Void,
+        onReleaseTab: @escaping (Int) -> Void,
+        onAddWindow: @escaping () -> Void
+    ) {
+        let tabBarView = TabBarView(
+            group: group,
+            onSwitchTab: onSwitchTab,
+            onReleaseTab: onReleaseTab,
+            onAddWindow: onAddWindow
+        )
+        // Remove previous hosting view if setContent is called again
+        visualEffectView.subviews.forEach { $0.removeFromSuperview() }
+
+        let hostingView = NSHostingView(rootView: tabBarView)
+        hostingView.frame = visualEffectView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        // Make hosting view transparent so NSVisualEffectView vibrancy shows through
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = .clear
+        visualEffectView.addSubview(hostingView)
     }
 
     /// Position the panel above the given window frame (in AX/CG coordinates)
