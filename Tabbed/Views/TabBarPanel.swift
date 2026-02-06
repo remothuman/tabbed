@@ -21,7 +21,7 @@ class TabBarPanel: NSPanel {
         self.hidesOnDeactivate = false
         self.isOpaque = false
         self.backgroundColor = .clear
-        self.isMovableByWindowBackground = true
+        self.isMovableByWindowBackground = false
         self.animationBehavior = .none
 
         let visualEffect = NSVisualEffectView(frame: self.contentView!.bounds)
@@ -38,11 +38,11 @@ class TabBarPanel: NSPanel {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // With isMovableByWindowBackground = false, this override only fires
+        // for clicks that miss all SwiftUI content (e.g. padding areas).
+        // Use those to drag the panel + grouped windows.
         frameOnMouseDown = self.frame
-        // isMovableByWindowBackground causes super.mouseDown to enter a modal
-        // tracking loop that blocks until the mouse is released. Check for
-        // frame changes immediately after it returns.
-        super.mouseDown(with: event)
+        performDrag(with: event)
         if self.frame != frameOnMouseDown {
             onPanelMoved?()
         }
