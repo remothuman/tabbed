@@ -8,8 +8,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var windowPickerPanel: NSPanel?
     private var tabBarPanels: [UUID: TabBarPanel] = [:]
-    /// Guard against AX notification feedback loops (e.g., setPosition triggers kAXMovedNotification)
-    private var isHandlingNotification = false
+    /// Window IDs we're programmatically moving/resizing — suppress their AX notifications.
+    /// Cleared after a short delay to allow the async notifications to arrive and be discarded.
+    private var suppressedWindowIDs: Set<CGWindowID> = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !AXIsProcessTrusted() {
@@ -32,6 +33,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         windowObserver.onTitleChanged = { [weak self] windowID in
             self?.handleTitleChanged(windowID)
         }
+
+        // Watch for apps quitting/crashing to clean up their grouped windows
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleAppTerminated(_:)),
+            name: NSWorkspace.didTerminateApplicationNotification,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -142,8 +151,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onAddWindow: { [weak self] in
                 self?.showWindowPicker(addingTo: group)
+            },
+            onMoveTab: { sourceID, destID in
+                guard let fromIndex = group.windows.firstIndex(where: { $0.id == sourceID }),
+                      let toIndex = group.windows.firstIndex(where: { $0.id == destID }) else { return }
+                group.moveTab(from: fromIndex, to: toIndex)
             }
         )
+
+        panel.onPanelMoved = { [weak self] in
+            self?.handlePanelMoved(group: group, panel: panel)
+        }
 
         tabBarPanels[group.id] = panel
 
@@ -218,6 +236,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tabBarPanels.removeValue(forKey: group.id)
     }
 
+    // MARK: - Notification Suppression
+
+    /// Suppress AX move/resize notifications for the given window IDs.
+    /// Notifications arriving within the suppression window are discarded
+    /// to prevent feedback loops from our own programmatic frame changes.
+    private func suppressNotifications(for windowIDs: [CGWindowID]) {
+        suppressedWindowIDs.formUnion(windowIDs)
+        let ids = Set(windowIDs)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.suppressedWindowIDs.subtract(ids)
+        }
+    }
+
+    // MARK: - Panel Drag
+
+    private func handlePanelMoved(group: TabGroup, panel: TabBarPanel) {
+        let panelFrame = panel.frame
+        let tabBarHeight = TabBarPanel.tabBarHeight
+
+        // Convert panel's AppKit frame to AX coordinates for the window area below it
+        let windowOriginAX = CoordinateConverter.appKitToAX(
+            point: CGPoint(x: panelFrame.origin.x, y: panelFrame.origin.y),
+            windowHeight: tabBarHeight
+        )
+        let windowFrame = CGRect(
+            x: windowOriginAX.x,
+            y: windowOriginAX.y + tabBarHeight,
+            width: panelFrame.width,
+            height: group.frame.height
+        )
+
+        group.frame = windowFrame
+        suppressNotifications(for: group.windows.map(\.id))
+
+        for window in group.windows {
+            AccessibilityHelper.setFrame(of: window.element, to: windowFrame)
+        }
+
+        if let activeWindow = group.activeWindow {
+            AccessibilityHelper.raise(activeWindow.element)
+            panel.orderAbove(windowID: activeWindow.id)
+        }
+    }
+
     // MARK: - AXObserver Handlers
 
     /// Clamp a window frame so the tab bar has room above it within the visible screen area.
@@ -232,15 +294,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleWindowMoved(_ windowID: CGWindowID) {
-        guard !isHandlingNotification else { return }
+        guard !suppressedWindowIDs.contains(windowID) else { return }
         guard let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
               let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
-
-        isHandlingNotification = true
-        defer { isHandlingNotification = false }
 
         let adjustedFrame = clampFrameForTabBar(frame)
         if adjustedFrame.origin != frame.origin {
@@ -248,6 +307,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         group.frame = adjustedFrame
+
+        // Suppress notifications for other windows we're about to sync
+        let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
+        suppressNotifications(for: otherIDs)
 
         // Sync other windows
         for window in group.windows where window.id != windowID {
@@ -260,30 +323,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleWindowResized(_ windowID: CGWindowID) {
-        guard !isHandlingNotification else { return }
+        guard !suppressedWindowIDs.contains(windowID) else { return }
         guard let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
               let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
-        isHandlingNotification = true
-        defer { isHandlingNotification = false }
-
         // Detect full-screen: window frame covers the entire screen
         if let screen = CoordinateConverter.screen(containingAXPoint: frame.origin) {
             let fullScreenSize = screen.frame.size
             if frame.width >= fullScreenSize.width && frame.height >= fullScreenSize.height {
                 // Window went full-screen — release it from the group.
-                // Expand it back to pre-group height so exiting full-screen restores correctly.
-                let tabBarHeight = TabBarPanel.tabBarHeight
-                let expandedFrame = CGRect(
-                    x: frame.origin.x,
-                    y: frame.origin.y - tabBarHeight,
-                    width: frame.width,
-                    height: frame.height + tabBarHeight
-                )
-                AccessibilityHelper.setFrame(of: activeWindow.element, to: expandedFrame)
+                // macOS handles full-screen frame restoration on its own,
+                // so we don't attempt to resize the window during the transition.
                 windowObserver.stopObserving(window: activeWindow)
                 groupManager.releaseWindow(withID: windowID, from: group)
                 if !groupManager.groups.contains(where: { $0.id == group.id }) {
@@ -303,6 +356,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         group.frame = adjustedFrame
+
+        // Suppress notifications for other windows we're about to sync
+        let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
+        suppressNotifications(for: otherIDs)
 
         // Sync other windows
         for window in group.windows where window.id != windowID {
@@ -330,7 +387,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Don't call stopObserving — the AXUIElement is already invalid.
         // Just do bookkeeping for the PID-level observer cleanup.
-        windowObserver.handleDestroyedWindow(pid: window.ownerPID)
+        windowObserver.handleDestroyedWindow(pid: window.ownerPID, elementHash: CFHash(window.element))
         groupManager.releaseWindow(withID: windowID, from: group)
 
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
@@ -346,6 +403,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let index = group.windows.firstIndex(where: { $0.id == windowID }),
            let newTitle = AccessibilityHelper.getTitle(of: group.windows[index].element) {
             group.windows[index].title = newTitle
+        }
+    }
+
+    @objc private func handleAppTerminated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        let pid = app.processIdentifier
+
+        // Find all grouped windows belonging to this PID and release them
+        for group in groupManager.groups {
+            let affectedWindows = group.windows.filter { $0.ownerPID == pid }
+            for window in affectedWindows {
+                windowObserver.handleDestroyedWindow(pid: pid, elementHash: CFHash(window.element))
+                groupManager.releaseWindow(withID: window.id, from: group)
+            }
+            // If group was dissolved, clean up the panel
+            if !groupManager.groups.contains(where: { $0.id == group.id }),
+               let panel = tabBarPanels.removeValue(forKey: group.id) {
+                panel.close()
+            }
         }
     }
 }

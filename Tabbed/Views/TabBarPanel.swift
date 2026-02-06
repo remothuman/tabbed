@@ -4,6 +4,8 @@ import SwiftUI
 class TabBarPanel: NSPanel {
     static let tabBarHeight: CGFloat = 36
 
+    var onPanelMoved: (() -> Void)?
+    private var frameOnMouseDown: NSRect = .zero
     private var visualEffectView: NSVisualEffectView!
 
     init() {
@@ -35,17 +37,30 @@ class TabBarPanel: NSPanel {
         self.visualEffectView = visualEffect
     }
 
+    override func mouseDown(with event: NSEvent) {
+        frameOnMouseDown = self.frame
+        // isMovableByWindowBackground causes super.mouseDown to enter a modal
+        // tracking loop that blocks until the mouse is released. Check for
+        // frame changes immediately after it returns.
+        super.mouseDown(with: event)
+        if self.frame != frameOnMouseDown {
+            onPanelMoved?()
+        }
+    }
+
     func setContent(
         group: TabGroup,
         onSwitchTab: @escaping (Int) -> Void,
         onReleaseTab: @escaping (Int) -> Void,
-        onAddWindow: @escaping () -> Void
+        onAddWindow: @escaping () -> Void,
+        onMoveTab: @escaping (CGWindowID, CGWindowID) -> Void
     ) {
         let tabBarView = TabBarView(
             group: group,
             onSwitchTab: onSwitchTab,
             onReleaseTab: onReleaseTab,
-            onAddWindow: onAddWindow
+            onAddWindow: onAddWindow,
+            onMoveTab: onMoveTab
         )
         // Remove previous hosting view if setContent is called again
         visualEffectView.subviews.forEach { $0.removeFromSuperview() }

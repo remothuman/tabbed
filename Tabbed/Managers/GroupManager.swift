@@ -49,6 +49,9 @@ class GroupManager: ObservableObject {
         }
     }
 
+    /// Remove the group from management. Note: the group's `windows` array is
+    /// intentionally left intact so callers (e.g., `AppDelegate.handleGroupDissolution`)
+    /// can still access the surviving windows for cleanup (expanding them into tab bar space).
     func dissolveGroup(_ group: TabGroup) {
         guard groups.contains(where: { $0.id == group.id }) else { return }
         groups.removeAll { $0.id == group.id }

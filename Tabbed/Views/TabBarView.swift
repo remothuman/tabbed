@@ -5,6 +5,7 @@ struct TabBarView: View {
     var onSwitchTab: (Int) -> Void
     var onReleaseTab: (Int) -> Void
     var onAddWindow: () -> Void
+    var onMoveTab: (CGWindowID, CGWindowID) -> Void
 
     @State private var hoveredWindowID: CGWindowID? = nil
 
@@ -12,6 +13,13 @@ struct TabBarView: View {
         HStack(spacing: 1) {
             ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
                 tabItem(for: window, at: index)
+                    .onDrag {
+                        NSItemProvider(object: String(window.id) as NSString)
+                    }
+                    .onDrop(of: [.text], delegate: TabDropDelegate(
+                        targetWindowID: window.id,
+                        onMoveTab: onMoveTab
+                    ))
             }
             addButton
         }
@@ -77,5 +85,32 @@ struct TabBarView: View {
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
+    }
+}
+
+struct TabDropDelegate: DropDelegate {
+    let targetWindowID: CGWindowID
+    let onMoveTab: (CGWindowID, CGWindowID) -> Void
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let item = info.itemProviders(for: [.text]).first else { return false }
+        item.loadObject(ofClass: NSString.self) { string, _ in
+            guard let string = string as? String,
+                  let sourceID = CGWindowID(string) else { return }
+            DispatchQueue.main.async {
+                if sourceID != targetWindowID {
+                    onMoveTab(sourceID, targetWindowID)
+                }
+            }
+        }
+        return true
+    }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.text])
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }

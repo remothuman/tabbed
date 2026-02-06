@@ -12,6 +12,10 @@ class WindowObserver {
     /// Track how many grouped windows exist per PID so we can clean up
     /// the app-level focus observer when the last one is ungrouped.
     private var windowCountPerPID: [pid_t: Int] = [:]
+    /// Cache AXUIElement → CGWindowID so we can identify windows during
+    /// kAXUIElementDestroyedNotification when the element may be invalid.
+    /// Key is the CFHash of the AXUIElement.
+    private var elementToWindowID: [CFHashCode: CGWindowID] = [:]
 
     var onWindowMoved: ((CGWindowID) -> Void)?
     var onWindowResized: ((CGWindowID) -> Void)?
@@ -62,6 +66,10 @@ class WindowObserver {
             )
         }
 
+        // Cache the element → windowID mapping for destroy notifications
+        let elementHash = CFHash(window.element)
+        elementToWindowID[elementHash] = window.id
+
         windowCountPerPID[pid, default: 0] += 1
     }
 
@@ -84,6 +92,7 @@ class WindowObserver {
             )
         }
 
+        elementToWindowID.removeValue(forKey: CFHash(window.element))
         windowCountPerPID[pid, default: 0] -= 1
 
         // If no more grouped windows for this PID, clean up the observer entirely
@@ -103,7 +112,8 @@ class WindowObserver {
     /// Called when a window is destroyed — the AXUIElement is already invalid,
     /// so we only do bookkeeping (no AXObserverRemoveNotification calls,
     /// since the system auto-cleans notifications for destroyed elements).
-    func handleDestroyedWindow(pid: pid_t) {
+    func handleDestroyedWindow(pid: pid_t, elementHash: CFHashCode) {
+        elementToWindowID.removeValue(forKey: elementHash)
         windowCountPerPID[pid, default: 0] -= 1
 
         if windowCountPerPID[pid, default: 0] <= 0 {
@@ -126,6 +136,7 @@ class WindowObserver {
         }
         observers.removeAll()
         windowCountPerPID.removeAll()
+        elementToWindowID.removeAll()
     }
 
     private func handleNotification(element: AXUIElement, notification: String) {
@@ -152,7 +163,17 @@ class WindowObserver {
             return
         }
 
-        guard let windowID = AccessibilityHelper.windowID(for: element) else { return }
+        // For destroy notifications, the element may already be invalid.
+        // Use cached mapping first, fall back to live query.
+        let elementHash = CFHash(element)
+        let windowID: CGWindowID
+        if let cached = elementToWindowID[elementHash] {
+            windowID = cached
+        } else if let live = AccessibilityHelper.windowID(for: element) {
+            windowID = live
+        } else {
+            return
+        }
 
         switch notification {
         case kAXMovedNotification as String:
