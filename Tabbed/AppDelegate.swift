@@ -22,6 +22,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Pending MRU commit after cycling stops.
     private var cycleWorkItem: DispatchWorkItem?
 
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !AXIsProcessTrusted() {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
