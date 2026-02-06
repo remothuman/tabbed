@@ -13,8 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// extend the suppression window instead of leaving gaps.
     private var suppressedWindowIDs: Set<CGWindowID> = []
     private var suppressionWorkItems: [CGWindowID: DispatchWorkItem] = [:]
-    /// Pending delayed re-sync for animated resizes (e.g. double-click maximize).
-    private var resyncWorkItem: DispatchWorkItem?
+    /// Pending delayed re-syncs for animated resizes, keyed by group ID.
+    private var resyncWorkItems: [UUID: DispatchWorkItem] = [:]
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !AXIsProcessTrusted() {
@@ -338,7 +338,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if frame.origin.y < visibleFrame.origin.y + tabBarHeight {
             let delta = (visibleFrame.origin.y + tabBarHeight) - frame.origin.y
             adjusted.origin.y += delta
-            adjusted.size.height -= delta
+            adjusted.size.height = max(adjusted.size.height - delta, tabBarHeight)
         }
         return adjusted
     }
@@ -419,9 +419,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Schedule a delayed re-sync to catch animated resizes (e.g. double-click
         // maximize). macOS may fire the notification before the animation finishes,
         // so we re-read the frame after a short delay and re-sync if it changed.
-        resyncWorkItem?.cancel()
         let groupID = group.id
+        resyncWorkItems[groupID]?.cancel()
         let resync = DispatchWorkItem { [weak self] in
+            self?.resyncWorkItems.removeValue(forKey: groupID)
             guard let self,
                   let group = self.groupManager.groups.first(where: { $0.id == groupID }),
                   let panel = self.tabBarPanels[groupID],
@@ -440,7 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             panel.positionAbove(windowFrame: clamped)
             panel.orderAbove(windowID: activeWindow.id)
         }
-        resyncWorkItem = resync
+        resyncWorkItems[groupID] = resync
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: resync)
     }
 
