@@ -11,7 +11,7 @@ enum AccessibilityHelper {
     }
 
     static func requestPermission() {
-        let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
     }
 
@@ -53,18 +53,22 @@ enum AccessibilityHelper {
     static func getPosition(of element: AXUIElement) -> CGPoint? {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value)
-        guard result == .success, let axValue = value else { return nil }
+        guard result == .success, let value else { return nil }
+        // swiftlint:disable:next force_cast
+        let axValue = value as! AXValue
         var point = CGPoint.zero
-        AXValueGetValue(axValue as! AXValue, .cgPoint, &point)
+        guard AXValueGetValue(axValue, .cgPoint, &point) else { return nil }
         return point
     }
 
     static func getSize(of element: AXUIElement) -> CGSize? {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value)
-        guard result == .success, let axValue = value else { return nil }
+        guard result == .success, let value else { return nil }
+        // swiftlint:disable:next force_cast
+        let axValue = value as! AXValue
         var size = CGSize.zero
-        AXValueGetValue(axValue as! AXValue, .cgSize, &size)
+        guard AXValueGetValue(axValue, .cgSize, &size) else { return nil }
         return size
     }
 
@@ -83,27 +87,40 @@ enum AccessibilityHelper {
 
     // MARK: - Write Attributes
 
-    static func setPosition(of element: AXUIElement, to point: CGPoint) {
+    @discardableResult
+    static func setPosition(of element: AXUIElement, to point: CGPoint) -> AXError {
         var mutablePoint = point
-        guard let value = AXValueCreate(.cgPoint, &mutablePoint) else { return }
-        AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
+        guard let value = AXValueCreate(.cgPoint, &mutablePoint) else { return .failure }
+        return AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
     }
 
-    static func setSize(of element: AXUIElement, to size: CGSize) {
+    @discardableResult
+    static func setSize(of element: AXUIElement, to size: CGSize) -> AXError {
         var mutableSize = size
-        guard let value = AXValueCreate(.cgSize, &mutableSize) else { return }
-        AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
+        guard let value = AXValueCreate(.cgSize, &mutableSize) else { return .failure }
+        return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
     }
 
     static func setFrame(of element: AXUIElement, to frame: CGRect) {
-        setPosition(of: element, to: frame.origin)
         setSize(of: element, to: frame.size)
+        setPosition(of: element, to: frame.origin)
+    }
+
+    /// Sets the frame, then reads back the size to confirm the app accepted it.
+    /// Returns the actual frame (which may differ if the app enforces min/max sizes).
+    @discardableResult
+    static func setFrameAndVerify(of element: AXUIElement, to frame: CGRect) -> CGRect {
+        setFrame(of: element, to: frame)
+        let actualSize = getSize(of: element) ?? frame.size
+        let actualPosition = getPosition(of: element) ?? frame.origin
+        return CGRect(origin: actualPosition, size: actualSize)
     }
 
     // MARK: - Actions
 
-    static func raise(_ element: AXUIElement) {
-        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+    @discardableResult
+    static func raise(_ element: AXUIElement) -> AXError {
+        return AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
     // MARK: - Observer
@@ -123,20 +140,30 @@ enum AccessibilityHelper {
         return obs
     }
 
+    @discardableResult
     static func addNotification(
         observer: AXObserver,
         element: AXUIElement,
         notification: String,
         context: UnsafeMutableRawPointer?
-    ) {
-        AXObserverAddNotification(observer, element, notification as CFString, context)
+    ) -> AXError {
+        return AXObserverAddNotification(observer, element, notification as CFString, context)
     }
 
+    @discardableResult
     static func removeNotification(
         observer: AXObserver,
         element: AXUIElement,
         notification: String
-    ) {
-        AXObserverRemoveNotification(observer, element, notification as CFString)
+    ) -> AXError {
+        return AXObserverRemoveNotification(observer, element, notification as CFString)
+    }
+
+    static func removeObserver(_ observer: AXObserver) {
+        CFRunLoopRemoveSource(
+            CFRunLoopGetMain(),
+            AXObserverGetRunLoopSource(observer),
+            .defaultMode
+        )
     }
 }
