@@ -6,6 +6,9 @@ struct TabBarView: View {
     var onReleaseTab: (Int) -> Void
     var onAddWindow: () -> Void
 
+    private static let horizontalPadding: CGFloat = 8 // 4 per side via .padding(.horizontal, 4)
+    private static let addButtonWidth: CGFloat = 20
+
     @State private var hoveredWindowID: CGWindowID? = nil
     @State private var draggingID: CGWindowID? = nil
     @State private var dragTranslation: CGFloat = 0
@@ -15,7 +18,7 @@ struct TabBarView: View {
         GeometryReader { geo in
             let tabCount = group.windows.count
             let tabStep: CGFloat = tabCount > 0
-                ? (geo.size.width - 8 - 20) / CGFloat(tabCount)
+                ? (geo.size.width - Self.horizontalPadding - Self.addButtonWidth) / CGFloat(tabCount)
                 : 0
 
             let targetIndex = computeTargetIndex(tabStep: tabStep)
@@ -87,6 +90,14 @@ struct TabBarView: View {
         return 0
     }
 
+    /// Convert a visual target index into an insertion index for `moveTab`.
+    /// When dragging right, the source is removed first, shifting indices down,
+    /// so the insertion point is target + 1. When dragging left (or not moving),
+    /// the target index is already correct.
+    static func insertionIndex(from sourceIndex: Int, to targetIndex: Int) -> Int {
+        sourceIndex < targetIndex ? targetIndex + 1 : targetIndex
+    }
+
     private func handleDragEnded(tabStep: CGFloat) {
         guard let dragID = draggingID else { return }
 
@@ -98,8 +109,7 @@ struct TabBarView: View {
         // so each tab smoothly slides just the small residual to its final slot.
         withAnimation(.easeOut(duration: 0.15)) {
             if let sourceIndex, sourceIndex != target {
-                let destination = sourceIndex < target ? target + 1 : target
-                group.moveTab(from: sourceIndex, to: destination)
+                group.moveTab(from: sourceIndex, to: Self.insertionIndex(from: sourceIndex, to: target))
             }
             dragTranslation = 0
             draggingID = nil
