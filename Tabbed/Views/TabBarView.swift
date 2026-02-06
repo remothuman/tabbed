@@ -8,25 +8,26 @@ struct TabBarView: View {
 
     @State private var hoveredWindowID: CGWindowID? = nil
     @State private var draggingID: CGWindowID? = nil
-    @State private var dragOffset: CGFloat = 0
-    /// Accumulated offset correction after each live swap so the tab stays under the cursor.
-    @State private var dragAdjustment: CGFloat = 0
+    @State private var dragTranslation: CGFloat = 0
+    @State private var dragStartIndex: Int = 0
 
     var body: some View {
         GeometryReader { geo in
             let tabCount = group.windows.count
-            // Approximate tab step (width including inter-tab spacing) for swap detection.
-            // The add button is fixed-width; the rest is split equally among tabs.
             let tabStep: CGFloat = tabCount > 0
                 ? (geo.size.width - 8 - 28) / CGFloat(tabCount)
                 : 0
+
+            let targetIndex = computeTargetIndex(tabStep: tabStep)
 
             HStack(spacing: 1) {
                 ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
                     let isDragging = draggingID == window.id
 
                     tabItem(for: window, at: index)
-                        .offset(x: isDragging ? dragOffset : 0)
+                        .offset(x: isDragging
+                            ? dragTranslation
+                            : shiftOffset(for: index, targetIndex: targetIndex, tabStep: tabStep))
                         .zIndex(isDragging ? 1 : 0)
                         .scaleEffect(isDragging ? 1.03 : 1.0, anchor: .center)
                         .shadow(
@@ -34,17 +35,20 @@ struct TabBarView: View {
                             radius: isDragging ? 6 : 0,
                             y: isDragging ? 1 : 0
                         )
+                        // Animate non-dragged tabs sliding over when target changes;
+                        // nil for the dragged tab so it tracks the cursor without lag.
+                        .animation(isDragging ? nil : .easeInOut(duration: 0.15), value: targetIndex)
                         .gesture(
                             DragGesture(minimumDistance: 5)
                                 .onChanged { value in
-                                    handleDragChanged(
-                                        windowID: window.id,
-                                        translation: value.translation.width,
-                                        tabStep: tabStep
-                                    )
+                                    if draggingID == nil {
+                                        draggingID = window.id
+                                        dragStartIndex = index
+                                    }
+                                    dragTranslation = value.translation.width
                                 }
                                 .onEnded { _ in
-                                    handleDragEnded()
+                                    handleDragEnded(tabStep: tabStep)
                                 }
                         )
                 }
@@ -56,43 +60,50 @@ struct TabBarView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Drag Handling
+    // MARK: - Drag Logic
 
-    private func handleDragChanged(windowID: CGWindowID, translation: CGFloat, tabStep: CGFloat) {
-        if draggingID == nil {
-            draggingID = windowID
-            dragAdjustment = 0
-        }
-
-        let effectiveOffset = translation + dragAdjustment
-        dragOffset = effectiveOffset
-
-        guard let currentIndex = group.windows.firstIndex(where: { $0.id == windowID }) else { return }
-
-        // Swap right: dragged tab center has passed the midpoint of the next tab
-        if effectiveOffset > tabStep / 2, currentIndex < group.windows.count - 1 {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                group.moveTab(from: currentIndex, to: currentIndex + 2)
-            }
-            dragAdjustment -= tabStep
-            dragOffset = translation + dragAdjustment
-        }
-        // Swap left: dragged tab center has passed the midpoint of the previous tab
-        else if effectiveOffset < -tabStep / 2, currentIndex > 0 {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                group.moveTab(from: currentIndex, to: currentIndex - 1)
-            }
-            dragAdjustment += tabStep
-            dragOffset = translation + dragAdjustment
-        }
+    /// Compute where the dragged tab should land based on total drag distance from its start position.
+    private func computeTargetIndex(tabStep: CGFloat) -> Int? {
+        guard draggingID != nil, tabStep > 0 else { return nil }
+        let positions = Int(round(dragTranslation / tabStep))
+        return max(0, min(group.windows.count - 1, dragStartIndex + positions))
     }
 
-    private func handleDragEnded() {
+    /// How much should a non-dragged tab shift to make room at the target position?
+    private func shiftOffset(for index: Int, targetIndex: Int?, tabStep: CGFloat) -> CGFloat {
+        guard let target = targetIndex else { return 0 }
+
+        if dragStartIndex < target {
+            // Dragging right: tabs between start (exclusive) and target (inclusive) shift left
+            if index > dragStartIndex && index <= target {
+                return -tabStep
+            }
+        } else if dragStartIndex > target {
+            // Dragging left: tabs between target (inclusive) and start (exclusive) shift right
+            if index >= target && index < dragStartIndex {
+                return tabStep
+            }
+        }
+        return 0
+    }
+
+    private func handleDragEnded(tabStep: CGFloat) {
+        guard let dragID = draggingID else { return }
+
+        let target = computeTargetIndex(tabStep: tabStep) ?? dragStartIndex
+        let sourceIndex = group.windows.firstIndex(where: { $0.id == dragID })
+
+        // Commit reorder + reset offsets in the same animation transaction.
+        // The natural-position shift from moveTab cancels the offset going to 0,
+        // so each tab smoothly slides just the small residual to its final slot.
         withAnimation(.easeOut(duration: 0.15)) {
-            dragOffset = 0
+            if let sourceIndex, sourceIndex != target {
+                let destination = sourceIndex < target ? target + 1 : target
+                group.moveTab(from: sourceIndex, to: destination)
+            }
+            dragTranslation = 0
             draggingID = nil
         }
-        dragAdjustment = 0
     }
 
     // MARK: - Tab Item
