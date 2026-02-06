@@ -190,6 +190,11 @@ git add -A
 git commit -m "feat: initial project setup with menu bar app shell"
 ```
 
+**Implementation notes (deviations from plan):**
+
+1. **Fixed `kAXTrustedCheckOptionPrompt` memory management:** The plan used `takeRetainedValue()` which would over-release a global constant. Changed to `takeUnretainedValue()`.
+2. **Fixed `project.yml`:** Added `GENERATE_INFOPLIST_FILE: YES` to the `TabbedTests` target settings. Without this, the test target fails to build because Xcode requires an Info.plist for code signing. (Surfaced when first running tests in Task 2.)
+
 ---
 
 ### Task 2: Data Models
@@ -409,6 +414,11 @@ Expected: All tests pass
 git add Tabbed/Models TabbedTests/TabGroupTests.swift
 git commit -m "feat: add WindowInfo and TabGroup data models with tests"
 ```
+
+**Implementation notes (deviations from plan):**
+
+1. **Bugfix in `removeWindow(at:)`:** The plan's implementation only clamped `activeIndex` when it overflowed past the array end. It didn't handle removing a window *before* the active one, which caused `activeIndex` to silently point at the wrong window. Added `else if index < activeIndex { activeIndex -= 1 }`.
+2. **Added missing test:** Added `testRemoveWindowBeforeActiveAdjustsIndex` to cover the bug above — the plan's test suite only tested removing the active window at the end position.
 
 ---
 
@@ -646,6 +656,12 @@ Expected: All tests pass
 git add Tabbed/Accessibility TabbedTests/CoordinateConverterTests.swift
 git commit -m "feat: add Accessibility API helper and coordinate converter"
 ```
+
+**Implementation notes (deviations from plan):**
+
+1. **Multi-monitor fix for `CoordinateConverter`:** The plan used `NSScreen.main` for all conversions, which only works on the primary screen. `axToAppKit`/`appKitToAX` now use a `primaryScreenHeight` computed property (correct because both coordinate systems are global, rooted at the primary screen). Added `screen(containingAXPoint:)` to find which screen contains an AX point. `visibleFrameInAX()` now requires a point argument — `visibleFrameInAX(at:)` — so it returns the visible frame for the correct screen. An overload `visibleFrameInAX(for:)` taking an `NSScreen` directly was also added.
+2. **`AccessibilityHelper` hardening:** `requestPermission()` uses `takeUnretainedValue()` (not `takeRetainedValue()`). `getPosition`/`getSize` now check the `AXValueGetValue` return value with `guard`. `setPosition`/`setSize`/`raise`/`addNotification`/`removeNotification` are `@discardableResult` returning `AXError`. Added `setFrameAndVerify` (sets frame, reads back actual values) and `removeObserver` (removes run loop source).
+3. **`setFrame` order changed:** Plan had position-then-size. Implementation does size-then-position so the position setter is authoritative (some apps auto-adjust position when resized).
 
 ---
 
@@ -1417,7 +1433,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if !AXIsProcessTrusted() {
-            let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
             AXIsProcessTrustedWithOptions(options)
         }
     }
@@ -1746,7 +1762,7 @@ private func handleWindowMoved(_ windowID: CGWindowID) {
           let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
     // Clamp to visible frame — ensure room for tab bar
-    let visibleFrame = CoordinateConverter.visibleFrameInAX()
+    let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
     let tabBarHeight = TabBarPanel.tabBarHeight
     var adjustedFrame = frame
     if frame.origin.y < visibleFrame.origin.y + tabBarHeight {
@@ -1797,9 +1813,10 @@ private func handleWindowFocused(pid: pid_t, element: AXUIElement) {
 
 private func handleWindowDestroyed(_ windowID: CGWindowID) {
     guard let group = groupManager.group(for: windowID),
-          let panel = tabBarPanels[group.id] else { return }
+          let panel = tabBarPanels[group.id],
+          let window = group.windows.first(where: { $0.id == windowID }) else { return }
 
-    windowObserver.stopObserving(window: group.windows.first { $0.id == windowID }!)
+    windowObserver.stopObserving(window: window)
     groupManager.releaseWindow(withID: windowID, from: group)
 
     if !groupManager.groups.contains(where: { $0.id == group.id }) {
@@ -1892,16 +1909,15 @@ When a grouped window's frame matches the screen bounds (after a resize notifica
 Add to `handleWindowResized` in AppDelegate, before the existing logic:
 
 ```swift
-// Detect full-screen: window frame matches screen bounds
-if let screen = NSScreen.main {
-    let screenFrame = CGRect(
-        origin: .zero,
-        size: CGSize(width: screen.frame.width, height: screen.frame.height)
-    )
-    if frame.origin.x == 0 && frame.origin.y == 0 &&
-       frame.width >= screenFrame.width && frame.height >= screenFrame.height {
+// Detect full-screen: window frame matches the screen it's on
+if let screen = CoordinateConverter.screen(containingAXPoint: frame.origin) {
+    let screenFrameAX = CoordinateConverter.visibleFrameInAX(for: screen)
+    let fullScreenFrame = CGRect(origin: .zero, size: screen.frame.size)
+    // Check if window covers the full screen (native full-screen or maximized to screen bounds)
+    if frame.width >= fullScreenFrame.width && frame.height >= fullScreenFrame.height {
         // Window went full-screen — release it
-        windowObserver.stopObserving(window: group.windows.first { $0.id == windowID }!)
+        guard let window = group.windows.first(where: { $0.id == windowID }) else { return }
+        windowObserver.stopObserving(window: window)
         groupManager.releaseWindow(withID: windowID, from: group)
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
             panel.close()
