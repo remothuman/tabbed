@@ -1,8 +1,11 @@
 # Todo
 
 ## Bugs
-- focusing an app from dock (or from link from other app, etc) should change the active tab
-- dragging the tab bar container does not drag the windows, also in its current design the extra space below the actual tabs is unecessary
+- focusing an app from dock (or from link from other app, etc) should change the active tab -- works inconsistently
+- sometimes on init the state of things is wrong, dragging around a window fixes it.
+- sometimes clicking a tab activates the tab but fails to focus the window
+
+- dragging the tab bar container does not drag the windows  
 
 
 
@@ -11,7 +14,8 @@
 - change x icon on tab which frees the window, change it to a - icon or another icon we find
 
 
-
+- Find way to hide non active windows completely (maybe settle for minimizing). esp so that it doesnt show up in AltTab (and mission control etc) and instead the metawindow is what shows up
+    - int his case also customize the window name maybe?
 
 ## Maybe:
 - allow one tab windows
@@ -19,8 +23,7 @@
     - make tabs shorter (more like chrome not safari)
     - add a close/release window button
 
-- Find way to hide non active windows completely (maybe settle for minimizing). esp so that it doesnt show up in AltTab (and mission control etc) and instead the metawindow is what shows up
-    - int his case also customize the window name maybe?
+
 
 - launch an app in addition to capturing an existing app
 
