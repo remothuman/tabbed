@@ -131,13 +131,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let group = groupManager.createGroup(with: windows, frame: windowFrame) else { return }
 
+        // Suppress notifications while we sync frames to prevent observer races
+        suppressNotifications(for: group.windows.map(\.id))
+
         // Sync all windows to same frame
         for window in group.windows {
             AccessibilityHelper.setFrame(of: window.element, to: windowFrame)
         }
-
-        // Raise the first window
-        raiseAndUpdate(group.windows[0], in: group)
 
         // Create and show tab bar
         let panel = TabBarPanel()
@@ -169,6 +169,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let activeWindow = group.activeWindow {
             panel.show(above: windowFrame, windowID: activeWindow.id)
+            // Raise the active window last so it's on top of the other grouped windows.
+            // This must happen after panel.show() to establish correct z-order.
+            raiseAndUpdate(activeWindow, in: group)
+            panel.orderAbove(windowID: activeWindow.id)
         }
     }
 
@@ -184,6 +188,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func switchTab(in group: TabGroup, to index: Int, panel: TabBarPanel) {
         group.switchTo(index: index)
         guard let window = group.activeWindow else { return }
+        // Activate the owning app first — the tab bar is a non-activating panel,
+        // so clicking a tab won't activate the app. Without this, raiseWindow
+        // may succeed (bringing the window to front within the app) but the app
+        // itself stays in the background, leaving the window unfocused.
+        if let app = NSRunningApplication(processIdentifier: window.ownerPID) {
+            if #available(macOS 14.0, *) {
+                app.activate()
+            } else {
+                app.activate(options: [])
+            }
+        }
         raiseAndUpdate(window, in: group)
         panel.orderAbove(windowID: window.id)
     }
