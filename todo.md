@@ -5,9 +5,7 @@
 
 - If tabbed window is fullscreen AND all windows in space are part of the tabbed window, then any new windows opening in space auto join the tabbed window
 
-- [pending] investigate a way to hide non active windows completely (maybe settle for minimizing). esp so that it doesnt show up in AltTab (and mission control etc) and instead the metawindow is what shows up
-    - int his case also customize the window name maybe?
-    - can hide with the undocumented CGS private APIs
+
 
 - session restoration feature:
     - customizable in settings
@@ -46,8 +44,11 @@
 - going from focus on non-grouped app that is on top of tab bar into grouped app not by clicking can leave non grouped app obsuring the tab bar - or something like that
 
 - verify the alt tab behavior follows same standards such as those that browsers like firefox, brave, follow
+- search for cross space / cross display bugs
 
 ## Maybe:
+
+- add app launching logic & restore mode that relaunches apps or something like that
 
 - maybe: change menu bar style to be more normal while still working with a hiding menubar (ideally keep it open) and being native-y
 
@@ -76,6 +77,13 @@
 - as an alternative to hiding windows for better integration with stuff such as altTab. we could just recreate altTab but with awareness of our own groups, and displays as such in the ui (ie three app icons in one list view). we are already a window manager sort of esp with the hyper tab keybind
     - basically how i want to use it personally is one alttab (replacing command tab) for window level, one hyper tab (or maybe remap) for within meta-window level, and then control tab for within app level (ie firefox, vscode) (already standard)
 
+
+- [gaveup] investigate a way to hide non active windows completely (maybe settle for minimizing). esp so that it doesnt show up in AltTab (and mission control etc) and instead the metawindow is what shows up
+    - int his case also customize the window name maybe?
+    - can hide with the undocumented CGS private APIs
+        - no not other's apps unless we inject into finder which requires the user disabling system wide security features
+    - maybe: implement minimization,
+    - or alternative is to interface with alttab, command tab or make our own
 
 ## Post-MVP Features (important)
 - Keyboard shortcuts for tab switching (using Hyper key to avoid conflicts with in-app shortcuts)

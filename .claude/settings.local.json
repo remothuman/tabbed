@@ -30,7 +30,15 @@
       "Bash(defaults read:*)",
       "Bash(DEVELOPMENT_TEAM=LS679A9VV4 ./build.sh:*)",
       "Bash(DEVELOPMENT_TEAM=LS679A9VV4 xcodebuild:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(echo:*)",
+      "Bash(DEVELOPMENT_TEAM=LS679A9VV4 sh build.sh:*)",
+      "Bash(git -C /Users/tmn/ccode/tabbed/version-a worktree list)",
+      "Bash(defaults export:*)",
+      "Bash(plutil:*)",
+      "Bash(log stream:*)",
+      "Bash(pgrep:*)"
     ]
   }
 }
