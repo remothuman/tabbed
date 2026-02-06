@@ -14,6 +14,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var tabBarPanels: [UUID: TabBarPanel] = [:]
     private var hotkeyManager: HotkeyManager?
     private var lastActiveGroupID: UUID?
+    /// Snapshots loaded at launch for deferred "Restore Previous Session" from menu.
+    private var pendingSessionSnapshots: [GroupSnapshot]?
+    let sessionState = SessionState()
     /// Window IDs we're programmatically moving/resizing — suppress their AX notifications.
     /// Each window has its own cancellable timer so overlapping programmatic changes
     /// extend the suppression window instead of leaving gaps.
@@ -137,6 +140,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyManager = hkm
 
         setupStatusItem()
+
+        // Session restoration
+        let sessionConfig = SessionConfig.load()
+        if let snapshots = SessionManager.loadSession() {
+            if sessionConfig.restoreMode == .smart || sessionConfig.restoreMode == .always {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.restoreSession(snapshots: snapshots, mode: sessionConfig.restoreMode)
+                }
+            }
+            if sessionConfig.restoreMode == .smart || sessionConfig.restoreMode == .off {
+                pendingSessionSnapshots = snapshots
+                sessionState.hasPendingSession = true
+            }
+        }
     }
 
     private func setupStatusItem() {
@@ -151,6 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let menuBarView = MenuBarView(
             groupManager: groupManager,
+            sessionState: sessionState,
             onNewGroup: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.showWindowPicker()
@@ -158,6 +176,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onAllInSpace: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.groupAllInSpace()
+            },
+            onRestoreSession: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.restorePreviousSession()
             },
             onFocusWindow: { [weak self] window in
                 self?.popover.performClose(nil)
@@ -193,6 +215,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         windowObserver.stopAll()
+        // Save session BEFORE expanding windows (we want the squeezed frame)
+        SessionManager.saveSession(groups: groupManager.groups)
         // Expand all grouped windows upward to reclaim tab bar space
         for group in groupManager.groups {
             let delta = group.tabBarSqueezeDelta
@@ -236,7 +260,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 520),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -246,9 +270,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.delegate = self
         let settingsView = SettingsView(
             config: hotkeyManager?.config ?? .default,
+            sessionConfig: SessionConfig.load(),
             onConfigChanged: { [weak self] newConfig in
                 newConfig.save()
                 self?.hotkeyManager?.updateConfig(newConfig)
+            },
+            onSessionConfigChanged: { newConfig in
+                newConfig.save()
             }
         )
         window.contentView = NSHostingView(rootView: settingsView)
@@ -453,6 +481,80 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    // MARK: - Session Restore
+
+    private func restoreSession(snapshots: [GroupSnapshot], mode: RestoreMode) {
+        windowManager.refreshWindowList()
+        let liveWindows = windowManager.availableWindows.filter {
+            !groupManager.isWindowGrouped($0.id)
+        }
+
+        var claimed = Set<CGWindowID>()
+
+        for snapshot in snapshots {
+            guard let matchedWindows = SessionManager.matchGroup(
+                snapshot: snapshot,
+                liveWindows: liveWindows,
+                alreadyClaimed: claimed,
+                mode: mode
+            ) else { continue }
+
+            for w in matchedWindows { claimed.insert(w.id) }
+
+            let savedFrame = snapshot.frame.cgRect
+            let restoredFrame = clampFrameForTabBar(savedFrame)
+            let squeezeDelta = restoredFrame.origin.y - savedFrame.origin.y
+            let effectiveSqueezeDelta = max(snapshot.tabBarSqueezeDelta, squeezeDelta)
+
+            guard let group = groupManager.createGroup(with: matchedWindows, frame: restoredFrame) else { continue }
+            group.tabBarSqueezeDelta = effectiveSqueezeDelta
+
+            let restoredActiveIndex = min(snapshot.activeIndex, matchedWindows.count - 1)
+            group.switchTo(index: restoredActiveIndex)
+
+            suppressNotifications(for: group.windows.map(\.id))
+
+            for window in group.windows {
+                AccessibilityHelper.setFrame(of: window.element, to: restoredFrame)
+            }
+
+            let panel = TabBarPanel()
+            panel.setContent(
+                group: group,
+                onSwitchTab: { [weak self, weak panel] index in
+                    guard let panel else { return }
+                    self?.switchTab(in: group, to: index, panel: panel)
+                },
+                onReleaseTab: { [weak self, weak panel] index in
+                    guard let panel else { return }
+                    self?.releaseTab(at: index, from: group, panel: panel)
+                },
+                onAddWindow: { [weak self] in
+                    self?.showWindowPicker(addingTo: group)
+                }
+            )
+
+            tabBarPanels[group.id] = panel
+
+            for window in group.windows {
+                windowObserver.observe(window: window)
+            }
+
+            if let activeWindow = group.activeWindow {
+                panel.show(above: restoredFrame, windowID: activeWindow.id)
+                raiseAndUpdate(activeWindow, in: group)
+                panel.orderAbove(windowID: activeWindow.id)
+            }
+        }
+    }
+
+    private func restorePreviousSession() {
+        guard let snapshots = pendingSessionSnapshots else { return }
+        pendingSessionSnapshots = nil
+        sessionState.hasPendingSession = false
+        restoreSession(snapshots: snapshots, mode: .always)
+    }
+
     // MARK: - Hotkey Actions
 
     /// Resolve the group the user is currently interacting with.
@@ -636,6 +738,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         group.frame = adjustedFrame
+        group.tabBarSqueezeDelta = adjustedFrame.origin.y - frame.origin.y
 
         // Suppress notifications for other windows we're about to sync
         let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
@@ -681,6 +784,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         group.frame = adjustedFrame
+        group.tabBarSqueezeDelta = adjustedFrame.origin.y - frame.origin.y
 
         // Suppress notifications for other windows we're about to sync
         let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
