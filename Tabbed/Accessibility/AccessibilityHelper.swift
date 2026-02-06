@@ -54,7 +54,7 @@ enum AccessibilityHelper {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value)
         guard result == .success, let value else { return nil }
-        // swiftlint:disable:next force_cast
+        // AXValue is a CFTypeRef; the cast always succeeds when non-nil
         let axValue = value as! AXValue
         var point = CGPoint.zero
         guard AXValueGetValue(axValue, .cgPoint, &point) else { return nil }
@@ -65,7 +65,7 @@ enum AccessibilityHelper {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value)
         guard result == .success, let value else { return nil }
-        // swiftlint:disable:next force_cast
+        // AXValue is a CFTypeRef; the cast always succeeds when non-nil
         let axValue = value as! AXValue
         var size = CGSize.zero
         guard AXValueGetValue(axValue, .cgSize, &size) else { return nil }

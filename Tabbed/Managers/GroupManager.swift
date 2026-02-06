@@ -5,16 +5,6 @@ import CoreGraphics
 class GroupManager: ObservableObject {
     @Published var groups: [TabGroup] = []
 
-    /// Callback fired when a group is dissolved. Passes the group's remaining windows.
-    /// Note: When dissolution is triggered by `releaseWindow`, `onWindowReleased`
-    /// fires first for the explicitly released window, then for each surviving window,
-    /// then `onGroupDissolved` fires with those same surviving windows still in the array.
-    var onGroupDissolved: (([WindowInfo]) -> Void)?
-
-    /// Callback fired when a window is released from a group (including each
-    /// remaining window during dissolution triggered by `releaseWindow`).
-    var onWindowReleased: ((WindowInfo) -> Void)?
-
     func isWindowGrouped(_ windowID: CGWindowID) -> Bool {
         groups.contains { $0.contains(windowID: windowID) }
     }
@@ -50,14 +40,9 @@ class GroupManager: ObservableObject {
 
     func releaseWindow(withID windowID: CGWindowID, from group: TabGroup) {
         guard groups.contains(where: { $0.id == group.id }) else { return }
-        guard let removed = group.removeWindow(withID: windowID) else { return }
-        onWindowReleased?(removed)
+        guard group.removeWindow(withID: windowID) != nil else { return }
 
         if group.windows.count <= 1 {
-            // Fire onWindowReleased for the last survivor before dissolving
-            for window in group.windows {
-                onWindowReleased?(window)
-            }
             dissolveGroup(group)
         } else {
             objectWillChange.send()
@@ -66,17 +51,10 @@ class GroupManager: ObservableObject {
 
     func dissolveGroup(_ group: TabGroup) {
         guard groups.contains(where: { $0.id == group.id }) else { return }
-        onGroupDissolved?(group.windows)
         groups.removeAll { $0.id == group.id }
     }
 
     func dissolveAllGroups() {
-        for group in groups {
-            for window in group.windows {
-                onWindowReleased?(window)
-            }
-            onGroupDissolved?(group.windows)
-        }
         groups.removeAll()
     }
 }

@@ -129,46 +129,4 @@ final class GroupManagerTests: XCTestCase {
         XCTAssertEqual(gm.groups.count, 0)
     }
 
-    // MARK: - Callback Tests
-
-    func testReleaseWindowFiresCallback() {
-        let gm = GroupManager()
-        var releasedIDs: [CGWindowID] = []
-        gm.onWindowReleased = { releasedIDs.append($0.id) }
-        let group = gm.createGroup(with: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)!
-        gm.releaseWindow(withID: 2, from: group)
-        XCTAssertEqual(releasedIDs, [2])
-    }
-
-    func testReleaseWindowDissolutionFiresReleasedForAllWindows() {
-        let gm = GroupManager()
-        var releasedIDs: [CGWindowID] = []
-        gm.onWindowReleased = { releasedIDs.append($0.id) }
-        let group = gm.createGroup(with: [makeWindow(id: 1), makeWindow(id: 2)], frame: .zero)!
-        gm.releaseWindow(withID: 1, from: group)
-        // Both the explicitly released window AND the last survivor get onWindowReleased
-        XCTAssertEqual(releasedIDs, [1, 2])
-    }
-
-    func testDissolveGroupFiresCallback() {
-        let gm = GroupManager()
-        var dissolvedWindowCounts: [Int] = []
-        gm.onGroupDissolved = { dissolvedWindowCounts.append($0.count) }
-        let group = gm.createGroup(with: [makeWindow(id: 1), makeWindow(id: 2)], frame: .zero)!
-        gm.dissolveGroup(group)
-        XCTAssertEqual(dissolvedWindowCounts, [2])
-    }
-
-    func testDissolveAllGroupsFiresCallbackForEach() {
-        let gm = GroupManager()
-        var dissolvedCalls = 0
-        var releasedIDs: [CGWindowID] = []
-        gm.onGroupDissolved = { _ in dissolvedCalls += 1 }
-        gm.onWindowReleased = { releasedIDs.append($0.id) }
-        gm.createGroup(with: [makeWindow(id: 1), makeWindow(id: 2)], frame: .zero)
-        gm.createGroup(with: [makeWindow(id: 3), makeWindow(id: 4)], frame: .zero)
-        gm.dissolveAllGroups()
-        XCTAssertEqual(dissolvedCalls, 2)
-        XCTAssertEqual(Set(releasedIDs), [1, 2, 3, 4])
-    }
 }
