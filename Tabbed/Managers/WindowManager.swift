@@ -187,6 +187,9 @@ class WindowManager: ObservableObject {
                 // 2d. Filter and build WindowInfo
                 var appWindows: [WindowInfo] = []
                 for (wid, element) in windowsByID {
+                    // Cap per-element AX queries so a hung app can't block this thread
+                    AXUIElementSetMessagingTimeout(element, 0.1)
+
                     if AccessibilityHelper.isMinimized(element) { continue }
 
                     let subrole = AccessibilityHelper.getSubrole(of: element)

@@ -24,7 +24,7 @@ func CGSGetWindowLevel(_ cid: UInt32, _ wid: CGWindowID, _ level: inout Int32) -
 /// Returns discovered (AXUIElement, CGWindowID) pairs for the caller to filter.
 func discoverWindowsByBruteForce(
     pid: pid_t,
-    maxID: UInt64 = 9999,
+    maxID: UInt64 = 2000,
     targetWindowIDs: Set<CGWindowID>? = nil
 ) -> [(element: AXUIElement, windowID: CGWindowID)] {
     var results: [(element: AXUIElement, windowID: CGWindowID)] = []
