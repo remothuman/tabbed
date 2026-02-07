@@ -95,123 +95,113 @@ class WindowManager: ObservableObject {
         )
     }
 
-    /// Returns windows across ALL spaces in z-order.
+    /// Returns windows across ALL spaces in z-order (AX-first pipeline).
     ///
-    /// Uses CGWindowListCopyWindowInfo (without `.optionOnScreenOnly`) for discovery,
-    /// which returns windows from all Spaces. For each CG window we try to find a
-    /// matching AXUIElement; windows without an AX match (typically on other Spaces)
-    /// get the app's AXUIElement as a placeholder — `raiseWindow`'s fallback resolves
-    /// a fresh element at focus time.
+    /// 1. Discovers apps via NSWorkspace (regular activation policy only)
+    /// 2. Per app: queries standard AX windows + brute-force cross-space discovery
+    /// 3. Filters via WindowDiscriminator.isActualWindow
+    /// 4. Enriches with CG data (bounds, z-order)
+    /// 5. Sorts by CG z-order (frontmost first)
     func windowsInZOrderAllSpaces() -> [WindowInfo] {
-        let options: CGWindowListOption = [.excludeDesktopElements]
-        guard let cgWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
-            return windowsInZOrder()
+        // Step 1: App discovery
+        let apps = NSWorkspace.shared.runningApplications.filter { app in
+            app.activationPolicy == .regular &&
+            app.processIdentifier != ownPID &&
+            !app.isHidden
         }
 
-        let cgWindows = cgWindowList.filter { info in
-            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { return false }
-            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID else { return false }
-            return true
-        }
+        // Step 4 (prefetch): CG window list for bounds and z-order
+        let cgOptions: CGWindowListOption = [.excludeDesktopElements]
+        let cgWindowList = CGWindowListCopyWindowInfo(cgOptions, kCGNullWindowID) as? [[String: Any]] ?? []
 
-        // Build AX element lookup per PID (lazy, each PID queried at most once)
-        var axByPID: [pid_t: [CGWindowID: AXUIElement]] = [:]
-        var appCache: [pid_t: NSRunningApplication?] = [:]
-        var excludedPIDs: Set<pid_t> = []
-
-        func ensurePID(_ pid: pid_t, cgOwnerName: String?) {
-            guard axByPID[pid] == nil else { return }
-            let app = NSRunningApplication(processIdentifier: pid)
-            appCache[pid] = app
-
-            // Only include regular apps (visible in Dock). Filters out
-            // accessory apps (menu-bar utilities, AltTab) and background agents.
-            if app?.activationPolicy != .regular {
-                excludedPIDs.insert(pid)
-                axByPID[pid] = [:]
-                return
+        var cgLookup: [CGWindowID: (bounds: CGRect, zOrder: Int)] = [:]
+        for (index, info) in cgWindowList.enumerated() {
+            guard let wid = info[kCGWindowNumber as String] as? CGWindowID,
+                  let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
+            var bounds = CGRect.zero
+            if let boundsDict = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
+                CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds)
             }
-
-            let axWindows = AccessibilityHelper.windowElements(for: pid)
-            var map: [CGWindowID: AXUIElement] = [:]
-            for ax in axWindows {
-                if let wid = AccessibilityHelper.windowID(for: ax) {
-                    map[wid] = ax
-                }
-            }
-            axByPID[pid] = map
+            cgLookup[wid] = (bounds: bounds, zOrder: index)
         }
 
+        // Step 2 & 3: AX-first window discovery + filtering
         var results: [WindowInfo] = []
+        let cgsConn = CGSMainConnectionID()
 
-        for info in cgWindows {
-            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let windowID = info[kCGWindowNumber as String] as? CGWindowID else { continue }
+        for app in apps {
+            let pid = app.processIdentifier
+            let bundleID = app.bundleIdentifier
+            let appName = app.localizedName ?? "Unknown"
+            let icon = app.icon
 
-            let cgOwnerName = info[kCGWindowOwnerName as String] as? String
-            ensurePID(pid, cgOwnerName: cgOwnerName)
-            if excludedPIDs.contains(pid) { continue }
+            // 2a. Set messaging timeout (100ms) to cap slow/hung apps
+            let appElement = AccessibilityHelper.appElement(for: pid)
+            AXUIElementSetMessagingTimeout(appElement, 0.1)
 
-            let app = appCache[pid] ?? nil
-            if app?.isHidden == true { continue }
-
-            // Extract CG bounds (available for all windows regardless of AX match)
-            var cgBounds = CGRect.zero
-            if let boundsRef = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
-                CGRectMakeWithDictionaryRepresentation(boundsRef, &cgBounds)
+            // 2b. Standard AX windows (current space)
+            var windowsByID: [CGWindowID: AXUIElement] = [:]
+            var axValue: AnyObject?
+            let axResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &axValue)
+            if axResult == .success, let axWindows = axValue as? [AXUIElement] {
+                for ax in axWindows {
+                    if let wid = AccessibilityHelper.windowID(for: ax), wid != 0 {
+                        windowsByID[wid] = ax
+                    }
+                }
             }
 
-            // Try to match an AX element for this window
-            if let axElement = axByPID[pid]?[windowID] {
-                // Skip auxiliary/companion windows (GPU surfaces, rendering helpers).
-                // Real user windows always have a subrole (AXStandardWindow, AXDialog, etc.).
-                if AccessibilityHelper.getSubrole(of: axElement) == nil { continue }
-                if AccessibilityHelper.isMinimized(axElement) { continue }
-                let title = AccessibilityHelper.getTitle(of: axElement) ?? ""
-                if let size = AccessibilityHelper.getSize(of: axElement),
-                   size.width < 50 || size.height < 50, title.isEmpty {
-                    continue
+            // 2c. Brute-force cross-space discovery
+            let bruteForce = discoverWindowsByBruteForce(pid: pid)
+            for (element, wid) in bruteForce {
+                if windowsByID[wid] == nil {
+                    windowsByID[wid] = element
                 }
-                results.append(WindowInfo(
-                    id: windowID,
-                    element: axElement,
-                    ownerPID: pid,
-                    bundleID: app?.bundleIdentifier ?? "",
+            }
+
+            // 2d. Filter and build WindowInfo
+            for (wid, element) in windowsByID {
+                if AccessibilityHelper.isMinimized(element) { continue }
+
+                let subrole = AccessibilityHelper.getSubrole(of: element)
+                let role = AccessibilityHelper.getRole(of: element)
+                let title = AccessibilityHelper.getTitle(of: element)
+                let size = AccessibilityHelper.getSize(of: element)
+
+                var windowLevel: Int32 = 0
+                let levelOK = CGSGetWindowLevel(cgsConn, wid, &windowLevel) == 0
+                let level: Int? = levelOK ? Int(windowLevel) : nil
+
+                guard WindowDiscriminator.isActualWindow(
+                    cgWindowID: wid,
+                    subrole: subrole,
+                    role: role,
                     title: title,
-                    appName: app?.localizedName ?? cgOwnerName ?? "Unknown",
-                    icon: app?.icon,
-                    cgBounds: cgBounds
-                ))
-            } else {
-                // No AX match — check if this is a companion window vs other-space window.
-                // Companion/auxiliary CG windows (GPU surfaces, rendering helpers) are
-                // on-screen but NOT in the app's AX window list. Other-space windows
-                // are off-screen and also lack AX matches. Only include the latter.
-                let isOnScreen: Bool
-                if let flag = info[kCGWindowIsOnscreen as String] as? Bool {
-                    isOnScreen = flag
-                } else if let num = info[kCGWindowIsOnscreen as String] as? Int {
-                    isOnScreen = num != 0
-                } else {
-                    isOnScreen = false
-                }
-                if isOnScreen { continue }
+                    size: size,
+                    level: level,
+                    bundleIdentifier: bundleID,
+                    localizedName: app.localizedName,
+                    executableURL: app.executableURL
+                ) else { continue }
 
-                let cgTitle = info[kCGWindowName as String] as? String ?? ""
-                if cgBounds.width < 50 || cgBounds.height < 50, cgTitle.isEmpty {
-                    continue
-                }
                 results.append(WindowInfo(
-                    id: windowID,
-                    element: AccessibilityHelper.appElement(for: pid),
+                    id: wid,
+                    element: element,
                     ownerPID: pid,
-                    bundleID: app?.bundleIdentifier ?? "",
-                    title: cgTitle,
-                    appName: app?.localizedName ?? cgOwnerName ?? "Unknown",
-                    icon: app?.icon,
-                    cgBounds: cgBounds
+                    bundleID: bundleID ?? "",
+                    title: title ?? "",
+                    appName: appName,
+                    icon: icon,
+                    cgBounds: cgLookup[wid]?.bounds
                 ))
             }
+        }
+
+        // Step 5: Sort by CG z-order (frontmost first)
+        results.sort { a, b in
+            let zA = cgLookup[a.id]?.zOrder ?? Int.max
+            let zB = cgLookup[b.id]?.zOrder ?? Int.max
+            return zA < zB
         }
 
         return results

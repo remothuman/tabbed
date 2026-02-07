@@ -33,7 +33,8 @@
       "Bash(security find-identity:*)",
       "Bash(security find-certificate:*)",
       "Bash(openssl x509:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "Bash(DEVELOPMENT_TEAM=LS679A9VV4 ./test.sh:*)"
     ]
   }
 }

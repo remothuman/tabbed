@@ -76,6 +76,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var signalSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Logger.log("[STARTUP] Tabbed launched — debug build \(Date())")
         installSignalHandler()
         if !AXIsProcessTrusted() {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
@@ -680,6 +681,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleGlobalSwitcher() {
+        Logger.log("[GS] handleGlobalSwitcher ENTERED")
         if switcherController.isActive {
             // Already showing — advance to next
             switcherController.advance()
@@ -707,9 +709,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var items: [SwitcherItem] = []
         var seenGroupIDs: Set<UUID> = []
 
+        Logger.log("[GS] === Global Switcher Debug ===")
+        Logger.log("[GS] Groups: \(groupManager.groups.count)")
+        for group in groupManager.groups {
+            Logger.log("[GS]   Group \(group.id): frame=\(group.frame), windowIDs=\(group.windows.map(\.id))")
+        }
+        Logger.log("[GS] sortedWindows: \(sortedWindows.count)")
         for window in sortedWindows {
+            let subrole = AccessibilityHelper.getSubrole(of: window.element) ?? "nil"
+            let axFrame = AccessibilityHelper.getFrame(of: window.element)
+            Logger.log("[GS]   wid=\(window.id) pid=\(window.ownerPID) app=\(window.appName) title=\(window.title) subrole=\(subrole) axFrame=\(axFrame?.debugDescription ?? "nil") cgBounds=\(window.cgBounds?.debugDescription ?? "nil")")
+
             // Known group member by ID → place group at this position (once)
             if let group = groupManager.group(for: window.id) {
+                Logger.log("[GS]     → matched group by ID")
                 if seenGroupIDs.insert(group.id).inserted {
                     items.append(.group(group))
                 }
@@ -725,9 +738,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     abs(frame.width - gf.width) < 2 &&
                     abs(frame.height - gf.height) < 2
                 }
-                if matchesGroupFrame { continue }
+                if matchesGroupFrame {
+                    Logger.log("[GS]     → skipped by frame match")
+                    continue
+                }
             }
 
+            Logger.log("[GS]     → ADDED as singleWindow")
             items.append(.singleWindow(window))
         }
 
