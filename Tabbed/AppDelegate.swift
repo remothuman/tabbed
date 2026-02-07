@@ -709,42 +709,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         var items: [SwitcherItem] = []
         var seenGroupIDs: Set<UUID> = []
 
-        Logger.log("[GS] === Global Switcher Debug ===")
-        Logger.log("[GS] Groups: \(groupManager.groups.count)")
-        for group in groupManager.groups {
-            Logger.log("[GS]   Group \(group.id): frame=\(group.frame), windowIDs=\(group.windows.map(\.id))")
-        }
-        Logger.log("[GS] sortedWindows: \(sortedWindows.count)")
+        Logger.log("[GS] groups=\(groupManager.groups.count) windows=\(sortedWindows.count)")
         for window in sortedWindows {
-            let subrole = AccessibilityHelper.getSubrole(of: window.element) ?? "nil"
-            let axFrame = AccessibilityHelper.getFrame(of: window.element)
-            Logger.log("[GS]   wid=\(window.id) pid=\(window.ownerPID) app=\(window.appName) title=\(window.title) subrole=\(subrole) axFrame=\(axFrame?.debugDescription ?? "nil") cgBounds=\(window.cgBounds?.debugDescription ?? "nil")")
-
             // Known group member by ID → place group at this position (once)
             if let group = groupManager.group(for: window.id) {
-                Logger.log("[GS]     → matched group by ID")
                 if seenGroupIDs.insert(group.id).inserted {
                     items.append(.group(group))
                 }
                 continue
             }
 
-            // Not matched by ID — check frame against group frames (catches stale IDs)
-            let frame = AccessibilityHelper.getFrame(of: window.element) ?? window.cgBounds
-            if let frame {
+            // Not matched by ID — check CG bounds against group frames (catches stale IDs)
+            if let frame = window.cgBounds {
                 let matchesGroupFrame = groupFrames.contains { gf in
                     abs(frame.origin.x - gf.origin.x) < 2 &&
                     abs(frame.origin.y - gf.origin.y) < 2 &&
                     abs(frame.width - gf.width) < 2 &&
                     abs(frame.height - gf.height) < 2
                 }
-                if matchesGroupFrame {
-                    Logger.log("[GS]     → skipped by frame match")
-                    continue
-                }
+                if matchesGroupFrame { continue }
             }
 
-            Logger.log("[GS]     → ADDED as singleWindow")
             items.append(.singleWindow(window))
         }
 

@@ -115,6 +115,7 @@ class WindowManager: ObservableObject {
         let cgWindowList = CGWindowListCopyWindowInfo(cgOptions, kCGNullWindowID) as? [[String: Any]] ?? []
 
         var cgLookup: [CGWindowID: (bounds: CGRect, zOrder: Int)] = [:]
+        var cgWindowsByPID: [pid_t: Set<CGWindowID>] = [:]
         for (index, info) in cgWindowList.enumerated() {
             guard let wid = info[kCGWindowNumber as String] as? CGWindowID,
                   let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { continue }
@@ -123,6 +124,9 @@ class WindowManager: ObservableObject {
                 CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds)
             }
             cgLookup[wid] = (bounds: bounds, zOrder: index)
+            if let pid = info[kCGWindowOwnerPID as String] as? pid_t {
+                cgWindowsByPID[pid, default: []].insert(wid)
+            }
         }
 
         // Step 2 & 3: AX-first window discovery + filtering
@@ -151,11 +155,15 @@ class WindowManager: ObservableObject {
                 }
             }
 
-            // 2c. Brute-force cross-space discovery
-            let bruteForce = discoverWindowsByBruteForce(pid: pid)
-            for (element, wid) in bruteForce {
-                if windowsByID[wid] == nil {
-                    windowsByID[wid] = element
+            // 2c. Brute-force cross-space discovery (only if CG shows windows AX missed)
+            let cgWindows = cgWindowsByPID[pid] ?? []
+            let missingFromAX = cgWindows.subtracting(windowsByID.keys)
+            if !missingFromAX.isEmpty {
+                let bruteForce = discoverWindowsByBruteForce(pid: pid, targetWindowIDs: missingFromAX)
+                for (element, wid) in bruteForce {
+                    if windowsByID[wid] == nil {
+                        windowsByID[wid] = element
+                    }
                 }
             }
 
