@@ -46,6 +46,7 @@ struct KeyBinding: Codable, Equatable {
     static let keyCodeT: UInt16 = 17
     static let keyCodeW: UInt16 = 13
     static let keyCodeTab: UInt16 = 48
+    static let keyCodeBacktick: UInt16 = 50
 
     static let keyCode1: UInt16 = 18
     static let keyCode2: UInt16 = 19
@@ -68,6 +69,7 @@ struct KeyBinding: Codable, Equatable {
     static let defaultNewTab = KeyBinding(modifiers: hyperModifiers, keyCode: keyCodeT)
     static let defaultReleaseTab = KeyBinding(modifiers: hyperModifiers, keyCode: keyCodeW)
     static let defaultCycleTab = KeyBinding(modifiers: hyperModifiers, keyCode: keyCodeTab)
+    static let defaultGlobalSwitcher = KeyBinding(modifiers: hyperModifiers, keyCode: keyCodeBacktick)
 
     static func defaultSwitchToTab(_ number: Int) -> KeyBinding {
         let codes: [UInt16] = [keyCode1, keyCode2, keyCode3, keyCode4, keyCode5,
@@ -86,5 +88,6 @@ struct KeyBinding: Codable, Equatable {
         30: "]", 31: "O", 32: "U", 33: "[", 34: "I", 35: "P", 37: "L",
         38: "J", 39: "'", 40: "K", 41: ";", 42: "\\", 43: ",", 44: "/",
         45: "N", 46: "M", 47: ".",
+        50: "`",
     ]
 }
