@@ -80,10 +80,13 @@ class SwitcherController {
     private func updatePanelContent() {
         guard let panel else { return }
 
+        let visible = computeVisibleWindow()
         let view = SwitcherView(
-            items: items,
-            selectedIndex: selectedIndex,
-            style: style
+            items: visible.items,
+            selectedIndex: visible.adjustedIndex,
+            style: style,
+            showLeadingOverflow: visible.leadingOverflow,
+            showTrailingOverflow: visible.trailingOverflow
         )
 
         let hostingView: NSHostingView<SwitcherView>
@@ -107,6 +110,49 @@ class SwitcherController {
             height: fittingSize.height
         )
         panel.setFrame(newFrame, display: true)
+    }
+
+    private func computeVisibleWindow() -> (items: [SwitcherItem], adjustedIndex: Int, leadingOverflow: Bool, trailingOverflow: Bool) {
+        let screen = NSScreen.screens.first(where: {
+            NSMouseInRect(NSEvent.mouseLocation, $0.frame, false)
+        }) ?? NSScreen.main
+        let screenSize = screen?.visibleFrame.size ?? CGSize(width: 1440, height: 900)
+
+        let maxItems: Int
+        switch style {
+        case .appIcons:
+            // Each icon cell is ~96px wide + 16px spacing
+            let available = screenSize.width * 0.85
+            maxItems = max(3, Int((available - 40) / 112))
+        case .titles:
+            // Each title row is ~38px tall
+            let available = screenSize.height * 0.85
+            maxItems = max(3, Int((available - 32) / 38))
+        }
+
+        guard items.count > maxItems else {
+            return (items, selectedIndex, false, false)
+        }
+
+        // Sliding window centered on selectedIndex
+        var start = selectedIndex - maxItems / 2
+        var end = start + maxItems
+
+        if start < 0 {
+            start = 0
+            end = min(maxItems, items.count)
+        }
+        if end > items.count {
+            end = items.count
+            start = max(0, end - maxItems)
+        }
+
+        return (
+            Array(items[start..<end]),
+            selectedIndex - start,
+            start > 0,
+            end < items.count
+        )
     }
 
     private func tearDown() {

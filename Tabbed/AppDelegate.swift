@@ -41,6 +41,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// are ignored to prevent delayed AX notifications from corrupting MRU order.
     private var cycleEndTime: Date?
     private static let cycleCooldownDuration: TimeInterval = 0.15
+    /// Global MRU order of app PIDs — most recently activated first.
+    /// Used by the global switcher for ordering (CG z-order is unreliable across Spaces).
+    private var globalAppMRU: [pid_t] = []
 
     private var isCycleCooldownActive: Bool {
         cycleEndTime.map { Date().timeIntervalSince($0) < Self.cycleCooldownDuration } ?? false
@@ -671,6 +674,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Global Switcher
 
+    private func recordGlobalActivation(pid: pid_t) {
+        globalAppMRU.removeAll { $0 == pid }
+        globalAppMRU.insert(pid, at: 0)
+    }
+
     private func handleGlobalSwitcher() {
         if switcherController.isActive {
             // Already showing — advance to next
@@ -679,8 +687,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let zWindows = windowManager.windowsInZOrderAllSpaces()
+
+        // Sort by global app MRU order; within the same app, preserve CG z-order.
+        let sortedWindows: [WindowInfo]
+        if globalAppMRU.isEmpty {
+            sortedWindows = zWindows
+        } else {
+            sortedWindows = zWindows.enumerated().sorted { a, b in
+                let rankA = globalAppMRU.firstIndex(of: a.element.ownerPID) ?? Int.max
+                let rankB = globalAppMRU.firstIndex(of: b.element.ownerPID) ?? Int.max
+                if rankA != rankB { return rankA < rankB }
+                return a.offset < b.offset
+            }.map(\.element)
+        }
+
         let items = SwitcherItemBuilder.build(
-            zOrderedWindows: zWindows,
+            zOrderedWindows: sortedWindows,
             groups: groupManager.groups
         )
         guard !items.isEmpty else { return }
@@ -726,9 +748,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func commitSwitcherSelection(_ item: SwitcherItem) {
         switch item {
         case .singleWindow(let window):
+            recordGlobalActivation(pid: window.ownerPID)
             focusWindow(window)
         case .group(let group):
             guard let activeWindow = group.activeWindow else { return }
+            recordGlobalActivation(pid: activeWindow.ownerPID)
             lastActiveGroupID = group.id
             focusWindow(activeWindow)
             if let panel = tabBarPanels[group.id] {
@@ -1011,6 +1035,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func handleAppActivated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         let pid = app.processIdentifier
+
+        // Track for global switcher MRU ordering
+        recordGlobalActivation(pid: pid)
 
         // Query which window the activated app considers focused
         let appElement = AccessibilityHelper.appElement(for: pid)

@@ -21,6 +21,9 @@ class WindowManager: ObservableObject {
             guard pid != ownPID else { continue }
 
             let app = NSRunningApplication(processIdentifier: pid)
+            // Only include regular apps (visible in Dock). Filters out
+            // accessory apps (menu-bar utilities, AltTab) and background agents.
+            if app?.activationPolicy != .regular { continue }
             let bundleID = app?.bundleIdentifier ?? ""
             let appName = app?.localizedName ?? (cgWindowsForPid.first?[kCGWindowOwnerName as String] as? String ?? "Unknown")
             let icon = app?.icon
@@ -114,9 +117,21 @@ class WindowManager: ObservableObject {
         // Build AX element lookup per PID (lazy, each PID queried at most once)
         var axByPID: [pid_t: [CGWindowID: AXUIElement]] = [:]
         var appCache: [pid_t: NSRunningApplication?] = [:]
+        var excludedPIDs: Set<pid_t> = []
 
         func ensurePID(_ pid: pid_t, cgOwnerName: String?) {
             guard axByPID[pid] == nil else { return }
+            let app = NSRunningApplication(processIdentifier: pid)
+            appCache[pid] = app
+
+            // Only include regular apps (visible in Dock). Filters out
+            // accessory apps (menu-bar utilities, AltTab) and background agents.
+            if app?.activationPolicy != .regular {
+                excludedPIDs.insert(pid)
+                axByPID[pid] = [:]
+                return
+            }
+
             let axWindows = AccessibilityHelper.windowElements(for: pid)
             var map: [CGWindowID: AXUIElement] = [:]
             for ax in axWindows {
@@ -125,7 +140,6 @@ class WindowManager: ObservableObject {
                 }
             }
             axByPID[pid] = map
-            appCache[pid] = NSRunningApplication(processIdentifier: pid)
         }
 
         var results: [WindowInfo] = []
@@ -136,6 +150,7 @@ class WindowManager: ObservableObject {
 
             let cgOwnerName = info[kCGWindowOwnerName as String] as? String
             ensurePID(pid, cgOwnerName: cgOwnerName)
+            if excludedPIDs.contains(pid) { continue }
 
             let app = appCache[pid] ?? nil
             if app?.isHidden == true { continue }
@@ -224,6 +239,7 @@ class WindowManager: ObservableObject {
             }
 
             let app = NSRunningApplication(processIdentifier: pid)
+            if app?.activationPolicy != .regular { continue }
             results.append(WindowInfo(
                 id: windowID,
                 element: axElement,

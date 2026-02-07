@@ -4,6 +4,8 @@ struct SwitcherView: View {
     let items: [SwitcherItem]
     let selectedIndex: Int
     let style: SwitcherStyle
+    let showLeadingOverflow: Bool
+    let showTrailingOverflow: Bool
 
     /// Maximum icons to show stacked for a group entry.
     private static let maxGroupIcons = 4
@@ -28,8 +30,20 @@ struct SwitcherView: View {
 
     private var iconsStyleView: some View {
         HStack(spacing: 16) {
+            if showLeadingOverflow {
+                Text("⋯")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+            }
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 iconCell(item: item, isSelected: index == selectedIndex)
+            }
+            if showTrailingOverflow {
+                Text("⋯")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
             }
         }
         .padding(8)
@@ -102,8 +116,22 @@ struct SwitcherView: View {
 
     private var titlesStyleView: some View {
         VStack(spacing: 2) {
+            if showLeadingOverflow {
+                Text("⋯")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 2)
+            }
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 titleRow(item: item, isSelected: index == selectedIndex)
+            }
+            if showTrailingOverflow {
+                Text("⋯")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 2)
             }
         }
         .frame(minWidth: 340)
