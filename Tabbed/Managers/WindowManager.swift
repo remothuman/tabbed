@@ -62,6 +62,36 @@ class WindowManager: ObservableObject {
         }
     }
 
+    /// Build a WindowInfo for a single AX element, verifying it against the CG window list.
+    func buildWindowInfo(element: AXUIElement, pid: pid_t) -> WindowInfo? {
+        guard let windowID = AccessibilityHelper.windowID(for: element) else { return nil }
+
+        // Verify this window is on-screen at layer 0
+        let cgWindows = AccessibilityHelper.getWindowList()
+        guard cgWindows.contains(where: {
+            ($0[kCGWindowOwnerPID as String] as? pid_t) == pid &&
+            ($0[kCGWindowNumber as String] as? CGWindowID) == windowID
+        }) else { return nil }
+
+        let app = NSRunningApplication(processIdentifier: pid)
+        let title = AccessibilityHelper.getTitle(of: element) ?? ""
+
+        if let size = AccessibilityHelper.getSize(of: element),
+           size.width < 50 || size.height < 50, title.isEmpty {
+            return nil
+        }
+
+        return WindowInfo(
+            id: windowID,
+            element: element,
+            ownerPID: pid,
+            bundleID: app?.bundleIdentifier ?? "",
+            title: title,
+            appName: app?.localizedName ?? "Unknown",
+            icon: app?.icon
+        )
+    }
+
     /// Returns all on-screen windows ordered by z-index (front-most first).
     /// CGWindowListCopyWindowInfo already returns windows in this order,
     /// so we preserve it instead of sorting alphabetically.

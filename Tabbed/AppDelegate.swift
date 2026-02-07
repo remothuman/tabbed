@@ -24,6 +24,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var suppressionWorkItems: [CGWindowID: DispatchWorkItem] = [:]
     /// Pending delayed re-syncs for animated resizes, keyed by group ID.
     private var resyncWorkItems: [UUID: DispatchWorkItem] = [:]
+    /// Auto-capture state: the group currently in "workspace takeover" mode.
+    private var autoCaptureGroup: TabGroup?
+    private var autoCaptureScreen: NSScreen?
+    private var autoCaptureObservers: [pid_t: AXObserver] = [:]
+    private var autoCaptureAppElements: [pid_t: AXUIElement] = [:]
+    private var autoCaptureNotificationTokens: [NSObjectProtocol] = []
+    private var autoCaptureDefaultCenterTokens: [NSObjectProtocol] = []
+    private var sessionConfig = SessionConfig.load()
     /// Pending MRU commit after cycling stops.
     private var cycleWorkItem: DispatchWorkItem?
     /// The group currently being MRU-cycled (captured at cycle start so
@@ -221,6 +229,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        deactivateAutoCapture()
         windowObserver.stopAll()
         // Save session BEFORE expanding windows (we want the squeezed frame)
         SessionManager.saveSession(groups: groupManager.groups)
@@ -278,8 +287,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 newConfig.save()
                 self?.hotkeyManager?.updateConfig(newConfig)
             },
-            onSessionConfigChanged: { newConfig in
+            onSessionConfigChanged: { [weak self] newConfig in
                 newConfig.save()
+                self?.sessionConfig = newConfig
+                if newConfig.autoCaptureEnabled {
+                    self?.evaluateAutoCapture()
+                } else {
+                    self?.deactivateAutoCapture()
+                }
             }
         )
         window.contentView = NSHostingView(rootView: settingsView)
@@ -415,6 +430,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             panel.orderAbove(windowID: activeWindow.id)
         }
 
+        evaluateAutoCapture()
         return group
     }
 
@@ -470,6 +486,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             raiseAndUpdate(newActive, in: group)
             panel.orderAbove(windowID: newActive.id)
         }
+        evaluateAutoCapture()
     }
 
     private func addWindow(_ window: WindowInfo, to group: TabGroup) {
@@ -485,6 +502,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if let panel = tabBarPanels[group.id] {
             panel.orderAbove(windowID: window.id)
         }
+        evaluateAutoCapture()
     }
 
     // MARK: - Session Restore
@@ -612,6 +630,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// when the group no longer exists. If `group.windows` is empty (e.g. the caller already
     /// expanded and cleaned up the released window), this just closes the panel.
     private func handleGroupDissolution(group: TabGroup, panel: TabBarPanel) {
+        if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
         cycleWorkItem?.cancel()
         cycleWorkItem = nil
@@ -641,6 +660,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func disbandGroup(_ group: TabGroup) {
         guard let panel = tabBarPanels[group.id] else { return }
 
+        if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
         cycleWorkItem?.cancel()
         cycleWorkItem = nil
@@ -733,6 +753,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Update panel position
         panel.positionAbove(windowFrame: adjustedFrame)
         panel.orderAbove(windowID: activeWindow.id)
+        evaluateAutoCapture()
     }
 
     private func handleWindowResized(_ windowID: CGWindowID) {
@@ -783,6 +804,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Update panel size and position
         panel.positionAbove(windowFrame: adjustedFrame)
         panel.orderAbove(windowID: activeWindow.id)
+        evaluateAutoCapture()
 
         // Schedule a delayed re-sync to catch animated resizes (e.g. double-click
         // maximize). macOS may fire the notification before the animation finishes,
@@ -808,6 +830,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
             panel.positionAbove(windowFrame: clamped)
             panel.orderAbove(windowID: activeWindow.id)
+            self.evaluateAutoCapture()
         }
         resyncWorkItems[groupID] = resync
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: resync)
@@ -855,6 +878,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             raiseAndUpdate(newActive, in: group)
             panel.orderAbove(windowID: newActive.id)
         }
+        evaluateAutoCapture()
     }
 
     private func handleTitleChanged(_ windowID: CGWindowID) {
@@ -889,6 +913,240 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             group.recordFocus(windowID: windowID)
         }
         panel.orderAbove(windowID: windowID)
+    }
+
+    // MARK: - Auto-Capture
+
+    private static let systemBundleIDs: Set<String> = [
+        "com.apple.dock",
+        "com.apple.notificationcenterui",
+        "com.apple.Spotlight",
+    ]
+
+    /// Check if a group's windows fill a screen (with tolerance for grid snapping, dock auto-hide).
+    private func isGroupMaximized(_ group: TabGroup) -> (Bool, NSScreen?) {
+        guard let screen = CoordinateConverter.screen(containingAXPoint: group.frame.origin) else {
+            return (false, nil)
+        }
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
+        // Total group rect = frame expanded up by tabBarSqueezeDelta
+        let groupRect = CGRect(
+            x: group.frame.origin.x,
+            y: group.frame.origin.y - group.tabBarSqueezeDelta,
+            width: group.frame.width,
+            height: group.frame.height + group.tabBarSqueezeDelta
+        )
+        let tolerance: CGFloat = 20
+        return (
+            abs(groupRect.origin.x - visibleFrame.origin.x) <= tolerance &&
+            abs(groupRect.origin.y - visibleFrame.origin.y) <= tolerance &&
+            abs(groupRect.width - visibleFrame.width) <= tolerance &&
+            abs(groupRect.height - visibleFrame.height) <= tolerance,
+            screen
+        )
+    }
+
+    /// Check that all ungrouped on-screen windows on this screen belong to the group
+    /// (i.e. there are no stray ungrouped windows), and at least one group window is
+    /// visible on the screen.
+    private func allWindowsOnScreenBelongToGroup(_ group: TabGroup, on screen: NSScreen) -> Bool {
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
+        let allWindows = windowManager.windowsInZOrder()
+
+        // Check no ungrouped windows are on this screen
+        for window in allWindows {
+            guard !groupManager.isWindowGrouped(window.id) else { continue }
+            if Self.systemBundleIDs.contains(window.bundleID) { continue }
+            guard let frame = AccessibilityHelper.getFrame(of: window.element) else { continue }
+            if visibleFrame.intersects(frame) {
+                return false
+            }
+        }
+
+        // Verify at least one group window is on this screen
+        let hasWindowOnScreen = group.windows.contains { window in
+            guard let frame = AccessibilityHelper.getFrame(of: window.element) else { return false }
+            return visibleFrame.intersects(frame)
+        }
+        return hasWindowOnScreen
+    }
+
+    /// Evaluate whether auto-capture should be activated or deactivated.
+    func evaluateAutoCapture() {
+        guard sessionConfig.autoCaptureEnabled else { return }
+
+        if let activeGroup = autoCaptureGroup,
+           let activeScreen = autoCaptureScreen {
+            // Currently active — verify still eligible
+            let (maximized, _) = isGroupMaximized(activeGroup)
+            if !maximized || !allWindowsOnScreenBelongToGroup(activeGroup, on: activeScreen) {
+                deactivateAutoCapture()
+            }
+            return
+        }
+
+        // Not active — scan for eligible group
+        for group in groupManager.groups {
+            let (maximized, screen) = isGroupMaximized(group)
+            guard maximized, let screen else { continue }
+            if allWindowsOnScreenBelongToGroup(group, on: screen) {
+                activateAutoCapture(for: group, on: screen)
+                return
+            }
+        }
+    }
+
+    private func activateAutoCapture(for group: TabGroup, on screen: NSScreen) {
+        autoCaptureGroup = group
+        autoCaptureScreen = screen
+
+        // Observe all regular (GUI) apps — not just those with on-screen windows,
+        // since a background app could create a window at any time.
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+            let pid = app.processIdentifier
+            guard pid != ownPID else { continue }
+            addAutoCaptureObserver(for: pid)
+        }
+
+        // Watch for new app launches
+        let launchToken = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didLaunchApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            self?.addAutoCaptureObserver(for: app.processIdentifier)
+        }
+
+        let terminateToken = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            self?.removeAutoCaptureObserver(for: app.processIdentifier)
+        }
+
+        // Watch for space changes and display config changes
+        let spaceToken = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.evaluateAutoCapture()
+        }
+
+        let screenToken = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.evaluateAutoCapture()
+        }
+
+        autoCaptureNotificationTokens = [launchToken, terminateToken, spaceToken]
+        autoCaptureDefaultCenterTokens = [screenToken]
+
+        Logger.log("[AutoCapture] Activated for group \(group.id) on \(screen.localizedName), observing \(autoCaptureObservers.count) PIDs")
+    }
+
+    private func deactivateAutoCapture() {
+        guard autoCaptureGroup != nil else { return }
+
+        for (pid, observer) in autoCaptureObservers {
+            if let appElement = autoCaptureAppElements[pid] {
+                AccessibilityHelper.removeNotification(
+                    observer: observer,
+                    element: appElement,
+                    notification: kAXWindowCreatedNotification as String
+                )
+            }
+            AccessibilityHelper.removeObserver(observer)
+        }
+        autoCaptureObservers.removeAll()
+        autoCaptureAppElements.removeAll()
+
+        for token in autoCaptureNotificationTokens {
+            NSWorkspace.shared.notificationCenter.removeObserver(token)
+        }
+        autoCaptureNotificationTokens.removeAll()
+        for token in autoCaptureDefaultCenterTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        autoCaptureDefaultCenterTokens.removeAll()
+
+        Logger.log("[AutoCapture] Deactivated")
+        autoCaptureGroup = nil
+        autoCaptureScreen = nil
+    }
+
+    private func addAutoCaptureObserver(for pid: pid_t) {
+        guard autoCaptureObservers[pid] == nil else { return }
+
+        let callback: AXObserverCallback = { _, element, notification, refcon in
+            guard let refcon else { return }
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(refcon).takeUnretainedValue()
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            delegate.handleWindowCreated(element: element, pid: pid)
+        }
+
+        guard let observer = AccessibilityHelper.createObserver(for: pid, callback: callback) else { return }
+        let appElement = AccessibilityHelper.appElement(for: pid)
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        AccessibilityHelper.addNotification(
+            observer: observer,
+            element: appElement,
+            notification: kAXWindowCreatedNotification as String,
+            context: context
+        )
+        autoCaptureObservers[pid] = observer
+        autoCaptureAppElements[pid] = appElement
+    }
+
+    private func removeAutoCaptureObserver(for pid: pid_t) {
+        guard let observer = autoCaptureObservers.removeValue(forKey: pid) else { return }
+        if let appElement = autoCaptureAppElements.removeValue(forKey: pid) {
+            AccessibilityHelper.removeNotification(
+                observer: observer,
+                element: appElement,
+                notification: kAXWindowCreatedNotification as String
+            )
+        }
+        AccessibilityHelper.removeObserver(observer)
+    }
+
+    private func handleWindowCreated(element: AXUIElement, pid: pid_t) {
+        guard autoCaptureGroup != nil else { return }
+
+        // Delay to let the window settle its frame
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self,
+                  let group = self.autoCaptureGroup,
+                  let screen = self.autoCaptureScreen else { return }
+
+            guard let window = self.windowManager.buildWindowInfo(element: element, pid: pid) else { return }
+
+            // Skip if already grouped
+            guard !self.groupManager.isWindowGrouped(window.id) else { return }
+
+            // Skip tiny/zero-size windows
+            if let size = AccessibilityHelper.getSize(of: element),
+               size.width < 200 || size.height < 150 {
+                return
+            }
+
+            // Check window is on the auto-capture screen
+            guard let frame = AccessibilityHelper.getFrame(of: element) else { return }
+            let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
+            guard visibleFrame.intersects(frame) else { return }
+
+            Logger.log("[AutoCapture] Capturing window \(window.id) (\(window.appName): \(window.title))")
+            self.suppressNotifications(for: [window.id])
+            self.addWindow(window, to: group)
+            self.evaluateAutoCapture()
+        }
     }
 
     @objc private func handleAppTerminated(_ notification: Notification) {

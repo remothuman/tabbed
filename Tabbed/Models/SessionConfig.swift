@@ -8,8 +8,20 @@ enum RestoreMode: String, Codable, CaseIterable {
 
 struct SessionConfig: Codable, Equatable {
     var restoreMode: RestoreMode
+    var autoCaptureEnabled: Bool
 
-    static let `default` = SessionConfig(restoreMode: .smart)
+    static let `default` = SessionConfig(restoreMode: .smart, autoCaptureEnabled: true)
+
+    init(restoreMode: RestoreMode = .smart, autoCaptureEnabled: Bool = true) {
+        self.restoreMode = restoreMode
+        self.autoCaptureEnabled = autoCaptureEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        restoreMode = try container.decode(RestoreMode.self, forKey: .restoreMode)
+        autoCaptureEnabled = try container.decodeIfPresent(Bool.self, forKey: .autoCaptureEnabled) ?? true
+    }
 
     // MARK: - Persistence
 

@@ -44,6 +44,19 @@ struct SettingsView: View {
 
             Divider()
 
+            Toggle(isOn: $sessionConfig.autoCaptureEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Capture new windows when maximized")
+                    Text("When a group fills the screen and owns all visible windows, new windows auto-join.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
             Text("Keyboard Shortcuts")
                 .font(.headline)
                 .padding(.top, 12)
@@ -88,6 +101,9 @@ struct SettingsView: View {
         }
         .frame(width: 400, height: 520)
         .onChange(of: sessionConfig.restoreMode) { _ in
+            onSessionConfigChanged(sessionConfig)
+        }
+        .onChange(of: sessionConfig.autoCaptureEnabled) { _ in
             onSessionConfigChanged(sessionConfig)
         }
         .background(ShortcutRecorderBridge(
