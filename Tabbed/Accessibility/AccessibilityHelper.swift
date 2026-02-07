@@ -93,6 +93,13 @@ enum AccessibilityHelper {
         return title
     }
 
+    static func getSubrole(of element: AXUIElement) -> String? {
+        var value: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value)
+        guard result == .success, let subrole = value as? String else { return nil }
+        return subrole
+    }
+
     static func isMinimized(_ element: AXUIElement) -> Bool {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &value)

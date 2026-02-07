@@ -163,7 +163,9 @@ class WindowManager: ObservableObject {
 
             // Try to match an AX element for this window
             if let axElement = axByPID[pid]?[windowID] {
-                // Have AX element — use it for minimized check and metadata
+                // Skip auxiliary/companion windows (GPU surfaces, rendering helpers).
+                // Real user windows always have a subrole (AXStandardWindow, AXDialog, etc.).
+                if AccessibilityHelper.getSubrole(of: axElement) == nil { continue }
                 if AccessibilityHelper.isMinimized(axElement) { continue }
                 let title = AccessibilityHelper.getTitle(of: axElement) ?? ""
                 if let size = AccessibilityHelper.getSize(of: axElement),
@@ -247,6 +249,9 @@ class WindowManager: ObservableObject {
                   pid != ownPID,
                   let windowID = info[kCGWindowNumber as String] as? CGWindowID,
                   let axElement = axElementsByPID[pid]?[windowID] else { continue }
+
+            // Skip auxiliary/companion windows (GPU surfaces, rendering helpers)
+            if AccessibilityHelper.getSubrole(of: axElement) == nil { continue }
 
             let title = AccessibilityHelper.getTitle(of: axElement) ?? ""
             if let size = AccessibilityHelper.getSize(of: axElement),
