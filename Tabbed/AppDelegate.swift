@@ -717,7 +717,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
 
             // Not matched by ID — check frame against group frames (catches stale IDs)
-            if let frame = AccessibilityHelper.getFrame(of: window.element) {
+            let frame = AccessibilityHelper.getFrame(of: window.element) ?? window.cgBounds
+            if let frame {
                 let matchesGroupFrame = groupFrames.contains { gf in
                     abs(frame.origin.x - gf.origin.x) < 2 &&
                     abs(frame.origin.y - gf.origin.y) < 2 &&

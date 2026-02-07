@@ -155,6 +155,12 @@ class WindowManager: ObservableObject {
             let app = appCache[pid] ?? nil
             if app?.isHidden == true { continue }
 
+            // Extract CG bounds (available for all windows regardless of AX match)
+            var cgBounds = CGRect.zero
+            if let boundsRef = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
+                CGRectMakeWithDictionaryRepresentation(boundsRef, &cgBounds)
+            }
+
             // Try to match an AX element for this window
             if let axElement = axByPID[pid]?[windowID] {
                 // Have AX element — use it for minimized check and metadata
@@ -171,7 +177,8 @@ class WindowManager: ObservableObject {
                     bundleID: app?.bundleIdentifier ?? "",
                     title: title,
                     appName: app?.localizedName ?? cgOwnerName ?? "Unknown",
-                    icon: app?.icon
+                    icon: app?.icon,
+                    cgBounds: cgBounds
                 ))
             } else {
                 // No AX match — check if this is a companion window vs other-space window.
@@ -189,11 +196,7 @@ class WindowManager: ObservableObject {
                 if isOnScreen { continue }
 
                 let cgTitle = info[kCGWindowName as String] as? String ?? ""
-                var bounds = CGRect.zero
-                if let boundsRef = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
-                    CGRectMakeWithDictionaryRepresentation(boundsRef, &bounds)
-                }
-                if bounds.width < 50 || bounds.height < 50, cgTitle.isEmpty {
+                if cgBounds.width < 50 || cgBounds.height < 50, cgTitle.isEmpty {
                     continue
                 }
                 results.append(WindowInfo(
@@ -203,7 +206,8 @@ class WindowManager: ObservableObject {
                     bundleID: app?.bundleIdentifier ?? "",
                     title: cgTitle,
                     appName: app?.localizedName ?? cgOwnerName ?? "Unknown",
-                    icon: app?.icon
+                    icon: app?.icon,
+                    cgBounds: cgBounds
                 ))
             }
         }

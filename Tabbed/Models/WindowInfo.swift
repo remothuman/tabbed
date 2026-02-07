@@ -9,6 +9,9 @@ struct WindowInfo: Identifiable, Equatable {
     var title: String
     var appName: String
     var icon: NSImage?
+    /// CG-reported bounds; available for all windows including off-space ones
+    /// where the AX element is a placeholder app element.
+    var cgBounds: CGRect?
 
     static func == (lhs: WindowInfo, rhs: WindowInfo) -> Bool {
         lhs.id == rhs.id
