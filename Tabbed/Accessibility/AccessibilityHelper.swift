@@ -93,6 +93,13 @@ enum AccessibilityHelper {
         return title
     }
 
+    static func isMinimized(_ element: AXUIElement) -> Bool {
+        var value: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &value)
+        guard result == .success, let boolValue = value as? Bool else { return false }
+        return boolValue
+    }
+
     static func isFullScreen(_ element: AXUIElement) -> Bool {
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &value)

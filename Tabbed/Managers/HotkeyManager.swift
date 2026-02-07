@@ -47,7 +47,10 @@ class HotkeyManager {
         }
     }
 
+    private var modifierPollTimer: Timer?
+
     func stop() {
+        stopModifierWatch()
         if let monitor = globalMonitor {
             NSEvent.removeMonitor(monitor)
             globalMonitor = nil
@@ -56,6 +59,31 @@ class HotkeyManager {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
         }
+    }
+
+    /// Start polling NSEvent.modifierFlags to detect modifier release.
+    /// This is a reliable fallback when flagsChanged events aren't delivered
+    /// (e.g. Karabiner Hyper key setups, certain event routing quirks).
+    func startModifierWatch(modifiers: UInt) {
+        modifierPollTimer?.invalidate()
+        let requiredMods = modifiers
+        modifierPollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            let currentMods = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+            if (currentMods & requiredMods) != requiredMods {
+                timer.invalidate()
+                self.modifierPollTimer = nil
+                self.onModifierReleased?()
+            }
+        }
+    }
+
+    func stopModifierWatch() {
+        modifierPollTimer?.invalidate()
+        modifierPollTimer = nil
     }
 
     func updateConfig(_ newConfig: ShortcutConfig) {
@@ -69,6 +97,7 @@ class HotkeyManager {
         let globalMods = config.globalSwitcher.modifiers
         let anyRequired = cycleMods | globalMods
         if (currentMods & anyRequired) != anyRequired {
+            stopModifierWatch() // Prevent double-fire from poll timer
             onModifierReleased?()
         }
     }

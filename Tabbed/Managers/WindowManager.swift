@@ -92,6 +92,98 @@ class WindowManager: ObservableObject {
         )
     }
 
+    /// Returns windows across ALL spaces in z-order.
+    ///
+    /// Uses CGWindowListCopyWindowInfo (without `.optionOnScreenOnly`) for discovery,
+    /// which returns windows from all Spaces. For each CG window we try to find a
+    /// matching AXUIElement; windows without an AX match (typically on other Spaces)
+    /// get the app's AXUIElement as a placeholder — `raiseWindow`'s fallback resolves
+    /// a fresh element at focus time.
+    func windowsInZOrderAllSpaces() -> [WindowInfo] {
+        let options: CGWindowListOption = [.excludeDesktopElements]
+        guard let cgWindowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
+            return windowsInZOrder()
+        }
+
+        let cgWindows = cgWindowList.filter { info in
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { return false }
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t, pid != ownPID else { return false }
+            return true
+        }
+
+        // Build AX element lookup per PID (lazy, each PID queried at most once)
+        var axByPID: [pid_t: [CGWindowID: AXUIElement]] = [:]
+        var appCache: [pid_t: NSRunningApplication?] = [:]
+
+        func ensurePID(_ pid: pid_t, cgOwnerName: String?) {
+            guard axByPID[pid] == nil else { return }
+            let axWindows = AccessibilityHelper.windowElements(for: pid)
+            var map: [CGWindowID: AXUIElement] = [:]
+            for ax in axWindows {
+                if let wid = AccessibilityHelper.windowID(for: ax) {
+                    map[wid] = ax
+                }
+            }
+            axByPID[pid] = map
+            appCache[pid] = NSRunningApplication(processIdentifier: pid)
+        }
+
+        var results: [WindowInfo] = []
+
+        for info in cgWindows {
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
+                  let windowID = info[kCGWindowNumber as String] as? CGWindowID else { continue }
+
+            let cgOwnerName = info[kCGWindowOwnerName as String] as? String
+            ensurePID(pid, cgOwnerName: cgOwnerName)
+
+            let app = appCache[pid] ?? nil
+            if app?.isHidden == true { continue }
+
+            // Try to match an AX element for this window
+            if let axElement = axByPID[pid]?[windowID] {
+                // Have AX element — use it for minimized check and metadata
+                if AccessibilityHelper.isMinimized(axElement) { continue }
+                let title = AccessibilityHelper.getTitle(of: axElement) ?? ""
+                if let size = AccessibilityHelper.getSize(of: axElement),
+                   size.width < 50 || size.height < 50, title.isEmpty {
+                    continue
+                }
+                results.append(WindowInfo(
+                    id: windowID,
+                    element: axElement,
+                    ownerPID: pid,
+                    bundleID: app?.bundleIdentifier ?? "",
+                    title: title,
+                    appName: app?.localizedName ?? cgOwnerName ?? "Unknown",
+                    icon: app?.icon
+                ))
+            } else {
+                // No AX match — window is likely on another Space.
+                // Use CG metadata + app AXUIElement as placeholder.
+                let cgTitle = info[kCGWindowName as String] as? String ?? ""
+                var bounds = CGRect.zero
+                if let boundsRef = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
+                    CGRectMakeWithDictionaryRepresentation(boundsRef, &bounds)
+                }
+                if bounds.width < 50 || bounds.height < 50, cgTitle.isEmpty {
+                    continue
+                }
+                results.append(WindowInfo(
+                    id: windowID,
+                    element: AccessibilityHelper.appElement(for: pid),
+                    ownerPID: pid,
+                    bundleID: app?.bundleIdentifier ?? "",
+                    title: cgTitle,
+                    appName: app?.localizedName ?? cgOwnerName ?? "Unknown",
+                    icon: app?.icon
+                ))
+            }
+        }
+
+        return results
+    }
+
     /// Returns all on-screen windows ordered by z-index (front-most first).
     /// CGWindowListCopyWindowInfo already returns windows in this order,
     /// so we preserve it instead of sorting alphabetically.

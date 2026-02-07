@@ -34,8 +34,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var sessionConfig = SessionConfig.load()
     private var switcherController = SwitcherController()
     private var switcherConfig = SwitcherConfig.load()
-    /// Pending MRU commit after cycling stops.
-    private var cycleWorkItem: DispatchWorkItem?
     /// The group currently being MRU-cycled (captured at cycle start so
     /// flagsChanged can end the cycle even if activeGroup() resolves differently).
     private weak var cyclingGroup: TabGroup?
@@ -158,6 +156,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         hkm.onEscapePressed = { [weak self] in
             guard let self, self.switcherController.isActive else { return false }
+            self.hotkeyManager?.stopModifierWatch()
             self.switcherController.dismiss()
             if let group = self.cyclingGroup {
                 group.endCycle()
@@ -617,7 +616,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let (group, panel) = activeGroup() else { return }
         guard group.windows.count > 1 else { return }
 
-        cycleWorkItem?.cancel()
         cyclingGroup = group
 
         if switcherController.isActive {
@@ -667,6 +665,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         // Advance past current window (index 0 = currently focused)
         switcherController.advance()
+        // Start polling for modifier release as a reliable fallback
+        hotkeyManager?.startModifierWatch(modifiers: hotkeyManager?.config.cycleTab.modifiers ?? 0)
     }
 
     // MARK: - Global Switcher
@@ -678,7 +678,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        let zWindows = windowManager.windowsInZOrder()
+        let zWindows = windowManager.windowsInZOrderAllSpaces()
         let items = SwitcherItemBuilder.build(
             zOrderedWindows: zWindows,
             groups: groupManager.groups
@@ -697,15 +697,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         )
         // Auto-advance past the current window (index 0 = already focused)
         switcherController.advance()
+        // Start polling for modifier release as a reliable fallback
+        hotkeyManager?.startModifierWatch(modifiers: hotkeyManager?.config.globalSwitcher.modifiers ?? 0)
     }
 
     /// Unified modifier release handler — commits whichever switcher is active.
     private func handleModifierReleased() {
+        hotkeyManager?.stopModifierWatch()
         if switcherController.isActive {
             switcherController.commit()
             // Clean up within-group cycling state if applicable
-            cycleWorkItem?.cancel()
-            cycleWorkItem = nil
+
             if let group = cyclingGroup {
                 group.endCycle()
                 cyclingGroup = nil
@@ -715,8 +717,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         // Fallback: non-visual cycle commit (shouldn't happen but safe)
         guard let group = cyclingGroup, group.isCycling else { return }
-        cycleWorkItem?.cancel()
-        cycleWorkItem = nil
+
         group.endCycle()
         cyclingGroup = nil
         cycleEndTime = Date()
@@ -752,8 +753,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func handleGroupDissolution(group: TabGroup, panel: TabBarPanel) {
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
-        cycleWorkItem?.cancel()
-        cycleWorkItem = nil
+
         if cyclingGroup === group { cyclingGroup = nil }
         resyncWorkItems[group.id]?.cancel()
         resyncWorkItems.removeValue(forKey: group.id)
@@ -782,8 +782,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
-        cycleWorkItem?.cancel()
-        cycleWorkItem = nil
+
         if cyclingGroup === group { cyclingGroup = nil }
         resyncWorkItems[group.id]?.cancel()
         resyncWorkItems.removeValue(forKey: group.id)
@@ -1290,8 +1289,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     // All remaining windows are from the terminated app —
                     // nothing to expand, just tear down the panel.
                     if cyclingGroup === group { cyclingGroup = nil }
-                    cycleWorkItem?.cancel()
-                    cycleWorkItem = nil
                     panel.close()
                     tabBarPanels.removeValue(forKey: group.id)
                 }
