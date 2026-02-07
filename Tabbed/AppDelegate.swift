@@ -251,6 +251,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        switcherController.dismiss()
         deactivateAutoCapture()
         windowObserver.stopAll()
         // Save session BEFORE expanding windows (we want the squeezed frame)
