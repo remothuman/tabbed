@@ -20,6 +20,8 @@ BUGS:
     - fullscreen restoration on app quit is 2px too short - sometimes. now its stopped
     
     - session restore is having wrong tab ordering, shows wrong tab as active
+    
+    - quiting new tab adder with esc (or any way) should refocus the current tab w/out requiring clickation
 
 - option for quick switcher keys to overwrite command tab and command ` (by windowgroup > by app)
 
