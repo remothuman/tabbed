@@ -302,8 +302,9 @@ extension AppDelegate {
     func handleSpaceChanged() {
         for group in groupManager.groups {
             guard group.spaceID != 0 else { continue }
+            let spaceMap = SpaceUtils.spaceIDs(for: group.windows.map(\.id))
             let strayIDs = group.windows.compactMap { window -> CGWindowID? in
-                guard let windowSpace = SpaceUtils.spaceID(for: window.id),
+                guard let windowSpace = spaceMap[window.id],
                       windowSpace != group.spaceID else { return nil }
                 return window.id
             }

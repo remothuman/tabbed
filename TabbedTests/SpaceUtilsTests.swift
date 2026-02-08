@@ -13,9 +13,9 @@ final class SpaceUtilsTests: XCTestCase {
         XCTAssertTrue(result.isEmpty)
     }
 
-    func testSpaceIDsSkipsInvalidWindows() {
+    func testSpaceIDsOmitsInvalidWindows() {
         let result = SpaceUtils.spaceIDs(for: [0, 99999])
-        // Both invalid, so results should be empty or nil values
-        XCTAssertTrue(result.values.allSatisfy { $0 == nil || $0 != nil })
+        // Both invalid, so they should be omitted from the result
+        XCTAssertTrue(result.isEmpty)
     }
 }
