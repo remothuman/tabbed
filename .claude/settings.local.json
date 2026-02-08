@@ -52,7 +52,8 @@
       "Bash(do wc -l \"$f\")",
       "Bash(done)",
       "Bash(for f in /Users/tmn/ccode/tabbed/version-a/Tabbed/features/WindowEventHandlers.swift /Users/tmn/ccode/tabbed/version-a/Tabbed/features/QuickSwitcher/QuickSwitcher.swift /Users/tmn/ccode/tabbed/version-a/Tabbed/features/AutoCapture/AutoCapture.swift)",
-      "Bash(defaults find:*)"
+      "Bash(defaults find:*)",
+      "Bash(cat:*)"
     ]
   }
 }

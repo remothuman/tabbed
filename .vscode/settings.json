@@ -1,0 +1,8 @@
+{
+    
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+        "project.yml": "*.config.js, *.config.ts, .env*, tsconfig*, .eslintrc*, .prettier*, .*ignore, Dockerfile, *.yaml, .npmrc, postcss.config.*, tailwind.config.*, *.json, *.jsonc, .git*"
+
+    }
+}

@@ -1,10 +1,32 @@
 ## Next:
-   
-- override system shortcuts if set to them (command tab command `)
-- ask to start on startup
+- fullscreen restoration
+- display title on hover tab (preview to hard) IF the tabs are shrunk enough
+- new tab to the right (right click on tab)
+
+- virtual tabs (brainstorm w superpowers)
+    - if a tab is virtual, it can exist in multiple spaces at once
+    - 
+
+- pinned tabs:
+    - tabs are left aliggned. jut show their icon. still draggable but only among other left aligned stuff
+    - right click to pin/unpin, can also drag into / outof pin area
+    
+- launch app? / spotlight alternative?
+    - alt new tab ui
+    - either: inspired by chrome/ff, or by arc
+        - arc-like
+            - center tab in middle with search
+            - shows available windows from space underneeth, can select with down arrow enter or with mouse
+            - can search in following priority
+                - 1) windows in current space
+                - 2) windows outside of space (virtualized badge)
+                - 3) apps to launch in space and then capture
+                - 4) web pages, powered by connection to browser of your choice, opening these opens a new window of browser of your choice in new tab
    
 >>>>
 
+- separate keyboard shortcut for remove current tab from space and close current tab
+ -> ig theres q for app... but im thinking hyper w should close it. maybe command or hyper shift w should which is already browsers standard
 ---
 bugs
 - in window switch
@@ -31,17 +53,24 @@ bugs
 - maybe: option to always make all lone windows single tabbed windows
 
 
-- maybe: multispace windows: for annoying windows like codex. put it in multiple window groups across spaces, clicking the window moves it to where you are
-
-
 - maybe: option for quick switcher to bring window to you instead of you to window, this way there is no space switch animation
 - wait. this is also how we can clean up mission control view. clicking a tab brings the window here. all other windows live can live on their own desktop away from site (holy moly)
 
-- simplify session restore config options maybe
-~
+- maybe: multispace/multigroup windows: for annoying windows like codex which only have one window per app. put it in multiple window groups across spaces, clicking the window moves it to where you are
+    - similar to above, maybe evolves into it
+    - call this virtual tabs?
 
-- quick switchers should allow you to do shift + (that shortcut) to go backwards, if users keyboard already has shift, we dont need to support going back
-    should hyper be like f18 or something instead?
+
+- simplify session restore config options maybe
+
+
+feature ideas: 
+    - see maybes above
+    - pinned tabs. just like browsers
+
+
+
+-----------
 
 
 BUGS:
@@ -82,9 +111,13 @@ Meta Dev:
     - set up vscode swift lsp
     - claude swift extension reduce the false positives
     
+    - maybe a custom commit script
+    
     - code cleanliness:
         - set up proper log system so claude doesnt either guess at bug or ask me to log as often
         - make sure tests are everywhere. i think its only writing tests when using superpowers implement skill. could copy that in general into claude.md or just ask it to test after the fact...
+        
+    
 
 - feature: spotlight launcher
     - in addition to adding apps from the current space in a list
@@ -93,6 +126,7 @@ Meta Dev:
     - in the future though it might search the web iswtg and make a browser webview type tab, and we will truly unify desktop and web apps into one control system muahahaha (will be disablable)
         - maybe just open it in helium (compact tabs and tabs and url in line),
         then to open new tab in new window user can drag out, otherwise it will be like double tabs. need to find way to make new helium window and navigate in it. good to allow any browser of users choice
+        - also register a system right click shortcut to search text or open link in browser of choice
 
 Maybe:
 - might be too complex

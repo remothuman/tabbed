@@ -55,7 +55,9 @@ struct TabBarView: View {
             let tabCount = group.windows.count
             let isCompact = tabBarConfig.style == .compact
             let handleWidth: CGFloat = tabBarConfig.showDragHandle ? Self.dragHandleWidth : 0
-            let availableWidth = geo.size.width - Self.horizontalPadding - Self.addButtonWidth - handleWidth
+            let leadingPad: CGFloat = tabBarConfig.showDragHandle ? 4 : 2
+            let trailingPad: CGFloat = 4
+            let availableWidth = geo.size.width - leadingPad - trailingPad - Self.addButtonWidth - handleWidth
             let totalSpacing: CGFloat = tabCount > 1 ? CGFloat(tabCount - 1) : 0
             let equalTabStep: CGFloat = tabCount > 0
                 ? availableWidth / CGFloat(tabCount)
@@ -132,7 +134,8 @@ struct TabBarView: View {
                         Spacer(minLength: 0)
                     }
                 }
-                .padding(.horizontal, 4)
+                .padding(.leading, leadingPad)
+                .padding(.trailing, trailingPad)
                 .padding(.vertical, 2)
 
                 // Drop indicator line when another group is dragging tabs over this bar
