@@ -208,6 +208,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onDisbandGroup: { [weak self] group in
                 self?.disbandGroup(group)
             },
+            onQuitGroup: { [weak self] group in
+                guard let self else { return }
+                self.popover.performClose(nil)
+
+                let appNames = Set(group.windows.map(\.appName))
+                let description = appNames.sorted().joined(separator: ", ")
+
+                let alert = NSAlert()
+                alert.messageText = "Quit all windows in this group?"
+                alert.informativeText = "This will close \(group.windows.count) window\(group.windows.count == 1 ? "" : "s") (\(description))."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Quit All")
+                alert.addButton(withTitle: "Cancel")
+
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+                self.quitGroup(group)
+            },
             onSettings: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.showSettings()

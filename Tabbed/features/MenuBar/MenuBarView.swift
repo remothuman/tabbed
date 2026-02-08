@@ -9,6 +9,7 @@ struct MenuBarView: View {
     var onRestoreSession: () -> Void
     var onFocusWindow: (WindowInfo) -> Void
     var onDisbandGroup: (TabGroup) -> Void
+    var onQuitGroup: (TabGroup) -> Void
     var onSettings: () -> Void
     var onQuit: () -> Void
 
@@ -82,7 +83,7 @@ struct MenuBarView: View {
             Button {
                 onDisbandGroup(group)
             } label: {
-                Image(systemName: "xmark")
+                Image(systemName: "minus")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 18, height: 18)
@@ -90,6 +91,18 @@ struct MenuBarView: View {
             }
             .buttonStyle(.plain)
             .help("Disband group")
+
+            Button {
+                onQuitGroup(group)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Quit all windows")
         }
         .padding(6)
         .background(

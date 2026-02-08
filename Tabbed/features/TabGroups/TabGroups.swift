@@ -333,6 +333,28 @@ extension AppDelegate {
         tabBarPanels.removeValue(forKey: group.id)
     }
 
+    func quitGroup(_ group: TabGroup) {
+        guard let panel = tabBarPanels[group.id] else { return }
+
+        if autoCaptureGroup === group { deactivateAutoCapture() }
+        if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+        globalMRU.removeAll { $0 == .group(group.id) }
+
+        if cyclingGroup === group { cyclingGroup = nil }
+        resyncWorkItems[group.id]?.cancel()
+        resyncWorkItems.removeValue(forKey: group.id)
+
+        for window in group.windows {
+            windowObserver.stopObserving(window: window)
+            expectedFrames.removeValue(forKey: window.id)
+            AccessibilityHelper.closeWindow(window.element)
+        }
+
+        groupManager.dissolveGroup(group)
+        panel.close()
+        tabBarPanels.removeValue(forKey: group.id)
+    }
+
     /// Resolve the group the user is currently interacting with.
     func activeGroup() -> (TabGroup, TabBarPanel)? {
         if let id = lastActiveGroupID,
