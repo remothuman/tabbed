@@ -241,6 +241,20 @@ extension AppDelegate {
         if !group.isCycling {
             group.recordFocus(windowID: window.id)
         }
+
+        // Safety: if the group frame extends below the visible area (e.g. after
+        // a snap/tile where the height wasn't reduced for the tab bar), trim it.
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: group.frame.origin)
+        let maxBottom = visibleFrame.origin.y + visibleFrame.height
+        let currentBottom = group.frame.origin.y + group.frame.height
+        if currentBottom > maxBottom + Self.frameTolerance {
+            let correctedHeight = maxBottom - group.frame.origin.y
+            group.frame = CGRect(x: group.frame.origin.x, y: group.frame.origin.y,
+                                 width: group.frame.width, height: correctedHeight)
+            Logger.log("[DEBUG] switchTab: trimmed group frame height to \(correctedHeight)")
+            panel.positionAbove(windowFrame: group.frame)
+        }
+
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
 
