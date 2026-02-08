@@ -21,6 +21,22 @@ struct TabBarView: View {
     static let horizontalPadding: CGFloat = 8
     static let addButtonWidth: CGFloat = 20
 
+    // Chrome/Firefox-style horizontal expand transition for new tabs
+    private struct HorizontalScale: ViewModifier {
+        let fraction: CGFloat
+        func body(content: Content) -> some View {
+            content.scaleEffect(x: fraction, y: 1, anchor: .leading)
+        }
+    }
+
+    private static let tabInsertTransition: AnyTransition = .asymmetric(
+        insertion: .modifier(
+            active: HorizontalScale(fraction: 0.01),
+            identity: HorizontalScale(fraction: 1)
+        ).combined(with: .opacity),
+        removal: .opacity
+    )
+
     @State private var hoveredWindowID: CGWindowID? = nil
     @State private var draggingID: CGWindowID? = nil
     @State private var dragTranslation: CGFloat = 0
@@ -59,6 +75,7 @@ struct TabBarView: View {
                                 y: isDragging ? 1 : 0
                             )
                             .animation(isDragging ? nil : .easeInOut(duration: 0.15), value: targetIndex)
+                            .transition(Self.tabInsertTransition)
                             .gesture(
                                 DragGesture(minimumDistance: 5)
                                     .onChanged { value in

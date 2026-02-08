@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import SwiftUI
 
 /// Manages the lifecycle of tab groups. All methods must be called on the main thread.
 class GroupManager: ObservableObject {
@@ -34,7 +35,9 @@ class GroupManager: ObservableObject {
     func addWindow(_ window: WindowInfo, to group: TabGroup, at index: Int? = nil) {
         guard groups.contains(where: { $0.id == group.id }) else { return }
         guard !isWindowGrouped(window.id) else { return }
-        group.addWindow(window, at: index)
+        withAnimation(.easeOut(duration: 0.15)) {
+            group.addWindow(window, at: index)
+        }
         objectWillChange.send()
     }
 
