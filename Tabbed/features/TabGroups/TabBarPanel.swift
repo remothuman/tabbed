@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 class TabBarPanel: NSPanel {
-    static let tabBarHeight: CGFloat = 28
+    static let tabBarHeight: CGFloat = ScreenCompensation.tabBarHeight
 
     private var visualEffectView: NSVisualEffectView!
 
