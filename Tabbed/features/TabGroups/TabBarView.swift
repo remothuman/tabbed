@@ -6,14 +6,21 @@ struct TabBarView: View {
     var onReleaseTab: (Int) -> Void
     var onCloseTab: (Int) -> Void
     var onAddWindow: () -> Void
+    var onReleaseTabs: (Set<CGWindowID>) -> Void
+    var onMoveToNewGroup: (Set<CGWindowID>) -> Void
+    var onCloseTabs: (Set<CGWindowID>) -> Void
 
-    private static let horizontalPadding: CGFloat = 8 // 4 per side via .padding(.horizontal, 4)
+    private static let horizontalPadding: CGFloat = 8
     private static let addButtonWidth: CGFloat = 20
 
     @State private var hoveredWindowID: CGWindowID? = nil
     @State private var draggingID: CGWindowID? = nil
     @State private var dragTranslation: CGFloat = 0
     @State private var dragStartIndex: Int = 0
+    @State private var selectedIDs: Set<CGWindowID> = []
+    @State private var lastClickedIndex: Int? = nil
+    /// IDs being dragged (either the multi-selection or just the single dragged tab)
+    @State private var draggingIDs: Set<CGWindowID> = []
 
     var body: some View {
         GeometryReader { geo in
@@ -26,7 +33,7 @@ struct TabBarView: View {
 
             HStack(spacing: 1) {
                 ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
-                    let isDragging = draggingID == window.id
+                    let isDragging = draggingIDs.contains(window.id)
 
                     tabItem(for: window, at: index)
                         .offset(x: isDragging
@@ -39,8 +46,6 @@ struct TabBarView: View {
                             radius: isDragging ? 6 : 0,
                             y: isDragging ? 1 : 0
                         )
-                        // Animate non-dragged tabs sliding over when target changes;
-                        // nil for the dragged tab so it tracks the cursor without lag.
                         .animation(isDragging ? nil : .easeInOut(duration: 0.15), value: targetIndex)
                         .gesture(
                             DragGesture(minimumDistance: 5)
@@ -48,11 +53,21 @@ struct TabBarView: View {
                                     if draggingID == nil {
                                         draggingID = window.id
                                         dragStartIndex = index
+                                        if selectedIDs.contains(window.id) {
+                                            draggingIDs = selectedIDs
+                                        } else {
+                                            selectedIDs = []
+                                            draggingIDs = [window.id]
+                                        }
                                     }
                                     dragTranslation = value.translation.width
                                 }
-                                .onEnded { _ in
-                                    handleDragEnded(tabStep: tabStep)
+                                .onEnded { value in
+                                    if abs(value.translation.height) > 30 {
+                                        handleDragDetach()
+                                    } else {
+                                        handleDragEnded(tabStep: tabStep)
+                                    }
                                 }
                         )
                 }
@@ -62,28 +77,73 @@ struct TabBarView: View {
             .padding(.vertical, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: group.windows.count) { _ in
+            // Clear stale selection when windows are externally added/removed
+            let validIDs = Set(group.windows.map(\.id))
+            selectedIDs = selectedIDs.intersection(validIDs)
+            if let idx = lastClickedIndex, idx >= group.windows.count {
+                lastClickedIndex = nil
+            }
+        }
+    }
+
+    // MARK: - Selection
+
+    private func handleClick(index: Int, window: WindowInfo) {
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+
+        if modifiers.contains(.command) {
+            // Cmd-click: toggle individual selection, don't switch tab
+            if selectedIDs.contains(window.id) {
+                selectedIDs.remove(window.id)
+            } else {
+                selectedIDs.insert(window.id)
+            }
+            lastClickedIndex = index
+        } else if modifiers.contains(.shift), let anchor = lastClickedIndex {
+            // Shift-click: range select from anchor to clicked
+            let range = min(anchor, index)...max(anchor, index)
+            for i in range {
+                selectedIDs.insert(group.windows[i].id)
+            }
+        } else {
+            // Plain click: clear selection, switch tab
+            selectedIDs = []
+            lastClickedIndex = index
+            onSwitchTab(index)
+        }
+    }
+
+    // MARK: - Context Menu
+
+    /// Resolve which window IDs the context menu should act on.
+    /// If the right-clicked tab is in the selection, act on all selected.
+    /// Otherwise act on just that tab.
+    private func contextTargets(for window: WindowInfo) -> Set<CGWindowID> {
+        if selectedIDs.contains(window.id) {
+            return selectedIDs
+        }
+        return [window.id]
     }
 
     // MARK: - Drag Logic
 
-    /// Compute where the dragged tab should land based on total drag distance from its start position.
     private func computeTargetIndex(tabStep: CGFloat) -> Int? {
         guard draggingID != nil, tabStep > 0 else { return nil }
         let positions = Int(round(dragTranslation / tabStep))
         return max(0, min(group.windows.count - 1, dragStartIndex + positions))
     }
 
-    /// How much should a non-dragged tab shift to make room at the target position?
     private func shiftOffset(for index: Int, targetIndex: Int?, tabStep: CGFloat) -> CGFloat {
         guard let target = targetIndex else { return 0 }
-
+        // Multi-drag: non-dragged tabs stay in place, dragged tabs float over
+        if draggingIDs.count > 1 { return 0 }
+        // Single-drag: original shift logic
         if dragStartIndex < target {
-            // Dragging right: tabs between start (exclusive) and target (inclusive) shift left
             if index > dragStartIndex && index <= target {
                 return -tabStep
             }
         } else if dragStartIndex > target {
-            // Dragging left: tabs between target (inclusive) and start (exclusive) shift right
             if index >= target && index < dragStartIndex {
                 return tabStep
             }
@@ -91,30 +151,47 @@ struct TabBarView: View {
         return 0
     }
 
-    /// Convert a visual target index into an insertion index for `moveTab`.
-    /// When dragging right, the source is removed first, shifting indices down,
-    /// so the insertion point is target + 1. When dragging left (or not moving),
-    /// the target index is already correct.
     static func insertionIndex(from sourceIndex: Int, to targetIndex: Int) -> Int {
         sourceIndex < targetIndex ? targetIndex + 1 : targetIndex
     }
 
     private func handleDragEnded(tabStep: CGFloat) {
-        guard let dragID = draggingID else { return }
+        guard draggingID != nil else { return }
 
         let target = computeTargetIndex(tabStep: tabStep) ?? dragStartIndex
-        let sourceIndex = group.windows.firstIndex(where: { $0.id == dragID })
 
-        // Commit reorder + reset offsets in the same animation transaction.
-        // The natural-position shift from moveTab cancels the offset going to 0,
-        // so each tab smoothly slides just the small residual to its final slot.
-        withAnimation(.easeOut(duration: 0.15)) {
-            if let sourceIndex, sourceIndex != target {
-                group.moveTab(from: sourceIndex, to: Self.insertionIndex(from: sourceIndex, to: target))
+        if draggingIDs.count > 1 {
+            // Multi-tab drag: target is the visual position the anchor hovers over.
+            // Pass directly — moveTabs treats it as the desired final position (clamped).
+            withAnimation(.easeOut(duration: 0.15)) {
+                group.moveTabs(withIDs: draggingIDs, toIndex: target)
+                resetDragState()
             }
-            dragTranslation = 0
-            draggingID = nil
+            selectedIDs = []
+        } else {
+            // Single-tab drag: existing behavior
+            let sourceIndex = group.windows.firstIndex(where: { $0.id == draggingID! })
+            withAnimation(.easeOut(duration: 0.15)) {
+                if let sourceIndex, sourceIndex != target {
+                    group.moveTab(from: sourceIndex, to: Self.insertionIndex(from: sourceIndex, to: target))
+                }
+                resetDragState()
+            }
         }
+    }
+
+    /// Drag ended with vertical movement — detach dragged tabs to a new group.
+    private func handleDragDetach() {
+        let ids = draggingIDs
+        resetDragState()
+        selectedIDs = []
+        onMoveToNewGroup(ids)
+    }
+
+    private func resetDragState() {
+        dragTranslation = 0
+        draggingID = nil
+        draggingIDs = []
     }
 
     // MARK: - Tab Item
@@ -123,6 +200,7 @@ struct TabBarView: View {
     private func tabItem(for window: WindowInfo, at index: Int) -> some View {
         let isActive = index == group.activeIndex
         let isHovered = hoveredWindowID == window.id && draggingID == nil
+        let isSelected = selectedIDs.contains(window.id)
 
         HStack(spacing: 6) {
             if let icon = window.icon {
@@ -138,7 +216,7 @@ struct TabBarView: View {
 
             Spacer(minLength: 0)
 
-            if isHovered {
+            if isHovered && !isSelected {
                 Image(systemName: isActive ? "minus" : "xmark")
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -158,14 +236,34 @@ struct TabBarView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isActive ? Color.primary.opacity(0.1) : Color.clear)
+                .fill(isActive
+                    ? Color.primary.opacity(0.1)
+                    : isSelected
+                        ? Color.accentColor.opacity(0.15)
+                        : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture {
-            onSwitchTab(index)
+            handleClick(index: index, window: window)
         }
         .onHover { hovering in
             hoveredWindowID = hovering ? window.id : nil
+        }
+        .contextMenu {
+            let targets = contextTargets(for: window)
+            Button("Release from Group") {
+                selectedIDs = []
+                onReleaseTabs(targets)
+            }
+            Button("Move to New Group") {
+                selectedIDs = []
+                onMoveToNewGroup(targets)
+            }
+            Divider()
+            Button("Close Windows") {
+                selectedIDs = []
+                onCloseTabs(targets)
+            }
         }
     }
 

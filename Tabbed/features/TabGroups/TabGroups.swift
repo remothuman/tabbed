@@ -109,6 +109,18 @@ extension AppDelegate {
             },
             onAddWindow: { [weak self] in
                 self?.showWindowPicker(addingTo: group)
+            },
+            onReleaseTabs: { [weak self, weak panel] ids in
+                guard let panel else { return }
+                self?.releaseTabs(withIDs: ids, from: group, panel: panel)
+            },
+            onMoveToNewGroup: { [weak self, weak panel] ids in
+                guard let panel else { return }
+                self?.moveTabsToNewGroup(withIDs: ids, from: group, panel: panel)
+            },
+            onCloseTabs: { [weak self, weak panel] ids in
+                guard let panel else { return }
+                self?.closeTabs(withIDs: ids, from: group, panel: panel)
             }
         )
 
@@ -356,6 +368,80 @@ extension AppDelegate {
         let targetIndex = (index == 8) ? group.windows.count - 1 : index
         guard targetIndex < group.windows.count else { return }
         switchTab(in: group, to: targetIndex, panel: panel)
+    }
+
+    // MARK: - Multi-Tab Operations
+
+    func releaseTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
+        for id in ids {
+            guard let window = group.windows.first(where: { $0.id == id }) else { continue }
+            windowObserver.stopObserving(window: window)
+            expectedFrames.removeValue(forKey: window.id)
+
+            if let frame = AccessibilityHelper.getFrame(of: window.element) {
+                let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
+                let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
+                let element = window.element
+                AccessibilityHelper.setSize(of: element, to: expanded.size)
+                AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+                    AccessibilityHelper.setSize(of: element, to: expanded.size)
+                }
+            }
+        }
+
+        groupManager.releaseWindows(withIDs: ids, from: group)
+
+        if !groupManager.groups.contains(where: { $0.id == group.id }) {
+            handleGroupDissolution(group: group, panel: panel)
+        } else if let newActive = group.activeWindow {
+            panel.orderAbove(windowID: newActive.id)
+        }
+        evaluateAutoCapture()
+    }
+
+    func moveTabsToNewGroup(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
+        let windowsToMove = group.windows.filter { ids.contains($0.id) }
+        guard !windowsToMove.isEmpty else { return }
+
+        let frame = group.frame
+        let squeezeDelta = group.tabBarSqueezeDelta
+
+        for window in windowsToMove {
+            windowObserver.stopObserving(window: window)
+            expectedFrames.removeValue(forKey: window.id)
+        }
+
+        groupManager.releaseWindows(withIDs: ids, from: group)
+
+        if !groupManager.groups.contains(where: { $0.id == group.id }) {
+            handleGroupDissolution(group: group, panel: panel)
+        } else if let newActive = group.activeWindow {
+            raiseAndUpdate(newActive, in: group)
+            panel.orderAbove(windowID: newActive.id)
+        }
+
+        setupGroup(with: windowsToMove, frame: frame, squeezeDelta: squeezeDelta)
+    }
+
+    func closeTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
+        for id in ids {
+            guard let window = group.windows.first(where: { $0.id == id }) else { continue }
+            windowObserver.stopObserving(window: window)
+            expectedFrames.removeValue(forKey: window.id)
+            AccessibilityHelper.closeWindow(window.element)
+        }
+
+        groupManager.releaseWindows(withIDs: ids, from: group)
+
+        if !groupManager.groups.contains(where: { $0.id == group.id }) {
+            handleGroupDissolution(group: group, panel: panel)
+        } else if let newActive = group.activeWindow {
+            raiseAndUpdate(newActive, in: group)
+            panel.orderAbove(windowID: newActive.id)
+        }
+        evaluateAutoCapture()
     }
 
     @objc func handleAppTerminated(_ notification: Notification) {

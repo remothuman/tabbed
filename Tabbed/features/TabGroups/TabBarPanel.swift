@@ -41,14 +41,20 @@ class TabBarPanel: NSPanel {
         onSwitchTab: @escaping (Int) -> Void,
         onReleaseTab: @escaping (Int) -> Void,
         onCloseTab: @escaping (Int) -> Void,
-        onAddWindow: @escaping () -> Void
+        onAddWindow: @escaping () -> Void,
+        onReleaseTabs: @escaping (Set<CGWindowID>) -> Void,
+        onMoveToNewGroup: @escaping (Set<CGWindowID>) -> Void,
+        onCloseTabs: @escaping (Set<CGWindowID>) -> Void
     ) {
         let tabBarView = TabBarView(
             group: group,
             onSwitchTab: onSwitchTab,
             onReleaseTab: onReleaseTab,
             onCloseTab: onCloseTab,
-            onAddWindow: onAddWindow
+            onAddWindow: onAddWindow,
+            onReleaseTabs: onReleaseTabs,
+            onMoveToNewGroup: onMoveToNewGroup,
+            onCloseTabs: onCloseTabs
         )
         // Remove previous hosting view if setContent is called again
         visualEffectView.subviews.forEach { $0.removeFromSuperview() }
