@@ -4,9 +4,9 @@
 
 **Goal:** Add shift/cmd-click multi-tab selection, multi-tab drag (reorder + detach), and right-click context menu to the tab bar.
 
-**Architecture:** Selection state lives purely in TabBarView (UI concern). New batch methods on TabGroup/GroupManager handle multi-window operations. Context menu uses SwiftUI `.contextMenu` modifier. New callbacks from TabBarView → AppDelegate handle multi-tab release/move/close.
+**Architecture:** Selection state lives purely in TabBarView (UI concern). New batch methods on TabGroup/GroupManager handle multi-window operations. Context menu uses SwiftUI `.contextMenu` modifier. New callbacks from TabBarView → AppDelegate handle multi-tab release/move/close. Modifier keys captured from `NSApp.currentEvent` for reliable cmd/shift detection.
 
-**Tech Stack:** SwiftUI, AppKit (NSPanel, NSEvent for modifier keys), Accessibility APIs
+**Tech Stack:** SwiftUI, AppKit (NSPanel, NSApp.currentEvent for modifier keys), Accessibility APIs
 
 ---
 
@@ -54,6 +54,14 @@ func testRemoveWindowsEmptySetDoesNothing() {
     let removed = group.removeWindows(withIDs: [])
     XCTAssertTrue(removed.isEmpty)
     XCTAssertEqual(group.windows.count, 2)
+}
+
+func testRemoveAllWindows() {
+    let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+    let removed = group.removeWindows(withIDs: [1, 2, 3])
+    XCTAssertEqual(removed.count, 3)
+    XCTAssertTrue(group.windows.isEmpty)
+    XCTAssertEqual(group.activeIndex, 0)
 }
 ```
 
@@ -126,9 +134,9 @@ In `TabbedTests/TabGroupTests.swift`:
 func testMoveTabsToEnd() {
     let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
     group.switchTo(index: 0) // Window 1 active
+    // toIndex=4 means block's first element targets final position 4.
+    // remaining=[2,4,5], insertAt=min(4, 3)=3 → [2,4,5,1,3]
     group.moveTabs(withIDs: [1, 3], toIndex: 4)
-    // Windows 1,3 removed then inserted at position after index 4's original slot
-    // Remaining after removal: [2, 4, 5], insert [1, 3] at index 3 (end)
     XCTAssertEqual(group.windows.map(\.id), [2, 4, 5, 1, 3])
     XCTAssertEqual(group.activeWindow?.id, 1)
 }
@@ -136,6 +144,7 @@ func testMoveTabsToEnd() {
 func testMoveTabsToBeginning() {
     let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4)], frame: .zero)
     group.switchTo(index: 3) // Window 4 active
+    // toIndex=0, remaining=[1,2], insertAt=0 → [3,4,1,2]
     group.moveTabs(withIDs: [3, 4], toIndex: 0)
     XCTAssertEqual(group.windows.map(\.id), [3, 4, 1, 2])
     XCTAssertEqual(group.activeWindow?.id, 4)
@@ -143,15 +152,29 @@ func testMoveTabsToBeginning() {
 
 func testMoveTabsPreservesRelativeOrder() {
     let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
+    // toIndex=1, remaining=[1,3,5], insertAt=1 → [1,2,4,3,5]
     group.moveTabs(withIDs: [4, 2], toIndex: 1)
-    // Remove 2,4 → remaining [1, 3, 5], insert [2, 4] at index 1
     XCTAssertEqual(group.windows.map(\.id), [1, 2, 4, 3, 5])
 }
 
 func testMoveTabsSingleTab() {
     let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+    // toIndex=2, remaining=[2,3], insertAt=min(2, 2)=2 → [2,3,1]
     group.moveTabs(withIDs: [1], toIndex: 2)
-    XCTAssertEqual(group.windows.map(\.id), [2, 1, 3])
+    XCTAssertEqual(group.windows.map(\.id), [2, 3, 1])
+}
+
+func testMoveTabsToMiddle() {
+    let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
+    // toIndex=2, remaining=[1,3,5], insertAt=min(2, 3)=2 → [1,3,2,4,5]
+    group.moveTabs(withIDs: [2, 4], toIndex: 2)
+    XCTAssertEqual(group.windows.map(\.id), [1, 3, 2, 4, 5])
+}
+
+func testMoveTabsNoOpWhenAlreadyInPlace() {
+    let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+    group.moveTabs(withIDs: [1, 2], toIndex: 0)
+    XCTAssertEqual(group.windows.map(\.id), [1, 2, 3])
 }
 ```
 
@@ -165,31 +188,17 @@ Expected: FAIL — `moveTabs(withIDs:toIndex:)` not found
 In `TabGroup.swift`, add after the existing `moveTab(from:to:)` method:
 
 ```swift
-/// Move multiple tabs (identified by IDs) so they form a contiguous block at `toIndex`.
-/// The moved tabs preserve their relative order. `toIndex` refers to the position
-/// in the *original* array where the block's leading edge should land.
+/// Move multiple tabs so they form a contiguous block starting at `toIndex` in the final array.
+/// Preserves relative order of moved tabs. `toIndex` is clamped to valid range.
 func moveTabs(withIDs ids: Set<CGWindowID>, toIndex: Int) {
-    guard !ids.isEmpty else { return }
+    let moved = windows.filter { ids.contains($0.id) }
+    guard !moved.isEmpty else { return }
 
     let activeID = activeWindow?.id
-
-    // Extract the tabs to move (preserving their relative order)
-    let movedWindows = windows.filter { ids.contains($0.id) }
-    guard !movedWindows.isEmpty else { return }
-
-    // Count how many moved tabs were before the target index
-    let removedBeforeTarget = windows.prefix(toIndex).filter { ids.contains($0.id) }.count
-
-    // Remove moved tabs
     windows.removeAll { ids.contains($0.id) }
+    let insertAt = max(0, min(toIndex, windows.count))
+    windows.insert(contentsOf: moved, at: insertAt)
 
-    // Adjusted insertion point: target shifts left by number of removed items before it
-    let insertAt = min(toIndex - removedBeforeTarget, windows.count)
-
-    // Insert the block
-    windows.insert(contentsOf: movedWindows, at: insertAt)
-
-    // Restore activeIndex
     if let activeID, let newIndex = windows.firstIndex(where: { $0.id == activeID }) {
         activeIndex = newIndex
     }
@@ -289,23 +298,26 @@ git commit -m "feat: add batch releaseWindows(withIDs:from:) to GroupManager"
 
 ---
 
-### Task 4: Add multi-tab callbacks to TabBarView and TabBarPanel
+### Task 4: Add multi-tab UI + callbacks + wiring (TabBarView, TabBarPanel, TabGroups.swift)
 
-This task adds the new callback signatures and context menu to the view layer. No model changes.
+This task modifies the view layer, panel, and AppDelegate wiring together to avoid a build break between commits.
 
 **Files:**
 - Modify: `Tabbed/features/TabGroups/TabBarView.swift`
 - Modify: `Tabbed/features/TabGroups/TabBarPanel.swift`
+- Modify: `Tabbed/features/TabGroups/TabGroups.swift`
 
-**Step 1: Update TabBarView with selection state, modifier-aware clicks, context menu, and multi-drag**
+**Step 1: Replace TabBarView.swift**
 
-Replace `TabBarView.swift` entirely with the following. Key changes:
-- New `@State var selectedIDs: Set<CGWindowID>` for multi-selection
-- New `@State var lastClickedIndex: Int?` for shift-click range anchoring
+Key changes from original:
+- `@State var selectedIDs` for multi-selection
+- `@State var lastClickedIndex` for shift-click range anchoring
 - New callbacks: `onReleaseTabs`, `onMoveToNewGroup`, `onCloseTabs` (all take `Set<CGWindowID>`)
-- Modifier-aware tap gesture (cmd-click, shift-click, plain click)
-- `.contextMenu` on each tab
-- Multi-tab drag support
+- Uses `NSApp.currentEvent?.modifierFlags` for reliable modifier detection (not `NSEvent.modifierFlags`)
+- `.contextMenu` on each tab (clears selection in action handlers when acting on unselected tab)
+- Multi-tab drag: dragging selected tab drags all selected; dragging unselected clears selection
+- Drag-off-bar detection: vertical drag > 30px triggers detach to new group
+- `.onChange(of: group.windows.count)` clears stale selection when windows are externally added/removed
 
 ```swift
 import SwiftUI
@@ -363,7 +375,6 @@ struct TabBarView: View {
                                     if draggingID == nil {
                                         draggingID = window.id
                                         dragStartIndex = index
-                                        // If dragging a selected tab, drag all selected; otherwise just this one
                                         if selectedIDs.contains(window.id) {
                                             draggingIDs = selectedIDs
                                         } else {
@@ -373,8 +384,12 @@ struct TabBarView: View {
                                     }
                                     dragTranslation = value.translation.width
                                 }
-                                .onEnded { _ in
-                                    handleDragEnded(tabStep: tabStep)
+                                .onEnded { value in
+                                    if abs(value.translation.height) > 30 {
+                                        handleDragDetach()
+                                    } else {
+                                        handleDragEnded(tabStep: tabStep)
+                                    }
                                 }
                         )
                 }
@@ -384,12 +399,17 @@ struct TabBarView: View {
             .padding(.vertical, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onChange(of: group.windows.count) { _ in
+            // Clear stale selection when windows are externally added/removed
+            let validIDs = Set(group.windows.map(\.id))
+            selectedIDs = selectedIDs.intersection(validIDs)
+        }
     }
 
     // MARK: - Selection
 
     private func handleClick(index: Int, window: WindowInfo) {
-        let modifiers = NSEvent.modifierFlags
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? []
 
         if modifiers.contains(.command) {
             // Cmd-click: toggle individual selection, don't switch tab
@@ -416,6 +436,8 @@ struct TabBarView: View {
     // MARK: - Context Menu
 
     /// Resolve which window IDs the context menu should act on.
+    /// If the right-clicked tab is in the selection, act on all selected.
+    /// Otherwise act on just that tab.
     private func contextTargets(for window: WindowInfo) -> Set<CGWindowID> {
         if selectedIDs.contains(window.id) {
             return selectedIDs
@@ -433,11 +455,9 @@ struct TabBarView: View {
 
     private func shiftOffset(for index: Int, targetIndex: Int?, tabStep: CGFloat) -> CGFloat {
         guard let target = targetIndex else { return 0 }
-        // For multi-drag, count how many dragged tabs need to shift past this position
-        if draggingIDs.count > 1 {
-            return multiShiftOffset(for: index, targetIndex: target, tabStep: tabStep)
-        }
-        // Single-drag: original logic
+        // Multi-drag: non-dragged tabs stay in place, dragged tabs float over
+        if draggingIDs.count > 1 { return 0 }
+        // Single-drag: original shift logic
         if dragStartIndex < target {
             if index > dragStartIndex && index <= target {
                 return -tabStep
@@ -450,25 +470,18 @@ struct TabBarView: View {
         return 0
     }
 
-    /// For multi-tab drag, non-dragged tabs shift to fill the gap left by dragged tabs.
-    /// This is a simpler model: dragged tabs move with cursor, others stay put.
-    private func multiShiftOffset(for index: Int, targetIndex: Int, tabStep: CGFloat) -> CGFloat {
-        // Non-dragged tabs don't shift during multi-drag — only the dragged cluster moves.
-        // The visual is: dragged tabs float over the bar at the cursor position.
-        return 0
-    }
-
     static func insertionIndex(from sourceIndex: Int, to targetIndex: Int) -> Int {
         sourceIndex < targetIndex ? targetIndex + 1 : targetIndex
     }
 
     private func handleDragEnded(tabStep: CGFloat) {
-        guard let dragID = draggingID else { return }
+        guard draggingID != nil else { return }
 
         let target = computeTargetIndex(tabStep: tabStep) ?? dragStartIndex
 
         if draggingIDs.count > 1 {
-            // Multi-tab drag: move all dragged tabs as a block to target position
+            // Multi-tab drag: target is the visual position the anchor hovers over.
+            // Pass directly — moveTabs treats it as the desired final position (clamped).
             withAnimation(.easeOut(duration: 0.15)) {
                 group.moveTabs(withIDs: draggingIDs, toIndex: target)
                 resetDragState()
@@ -476,7 +489,7 @@ struct TabBarView: View {
             selectedIDs = []
         } else {
             // Single-tab drag: existing behavior
-            let sourceIndex = group.windows.firstIndex(where: { $0.id == dragID })
+            let sourceIndex = group.windows.firstIndex(where: { $0.id == draggingID! })
             withAnimation(.easeOut(duration: 0.15)) {
                 if let sourceIndex, sourceIndex != target {
                     group.moveTab(from: sourceIndex, to: Self.insertionIndex(from: sourceIndex, to: target))
@@ -484,6 +497,14 @@ struct TabBarView: View {
                 resetDragState()
             }
         }
+    }
+
+    /// Drag ended with vertical movement — detach dragged tabs to a new group.
+    private func handleDragDetach() {
+        let ids = draggingIDs
+        resetDragState()
+        selectedIDs = []
+        onMoveToNewGroup(ids)
     }
 
     private func resetDragState() {
@@ -550,13 +571,16 @@ struct TabBarView: View {
         .contextMenu {
             let targets = contextTargets(for: window)
             Button("Release from Group") {
+                selectedIDs = []
                 onReleaseTabs(targets)
             }
             Button("Move to New Group") {
+                selectedIDs = []
                 onMoveToNewGroup(targets)
             }
             Divider()
             Button("Close Windows") {
+                selectedIDs = []
                 onCloseTabs(targets)
             }
         }
@@ -578,7 +602,7 @@ struct TabBarView: View {
 
 **Step 2: Update TabBarPanel.setContent to pass new callbacks**
 
-In `TabBarPanel.swift`, update the `setContent` method signature and call site:
+In `TabBarPanel.swift`, replace the `setContent` method:
 
 ```swift
 func setContent(
@@ -612,30 +636,9 @@ func setContent(
 }
 ```
 
-**Step 3: Build to verify compilation**
+**Step 3: Add handler methods to TabGroups.swift and update setupGroup**
 
-Run: `scripts/build.sh`
-Expected: Build failure — `setContent` call sites in TabGroups.swift don't pass the new parameters yet. That's expected; we fix those in the next task.
-
-**Step 4: Commit (even with known build break — next task fixes it)**
-
-```bash
-git add Tabbed/features/TabGroups/TabBarView.swift Tabbed/features/TabGroups/TabBarPanel.swift
-git commit -m "feat: add multi-select, context menu, and multi-drag to TabBarView"
-```
-
----
-
-### Task 5: Wire up multi-tab callbacks in AppDelegate (TabGroups.swift)
-
-**Files:**
-- Modify: `Tabbed/features/TabGroups/TabGroups.swift`
-
-**Step 1: Add handler methods and update setupGroup**
-
-In `TabGroups.swift`, add three new methods and update `setupGroup` to pass the new callbacks.
-
-Add these methods before `handleAppTerminated`:
+In `TabGroups.swift`, add three new methods before `handleAppTerminated`:
 
 ```swift
 func releaseTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
@@ -668,20 +671,22 @@ func releaseTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabB
 }
 
 func moveTabsToNewGroup(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
-    // Collect the windows before removing them
     let windowsToMove = group.windows.filter { ids.contains($0.id) }
     guard !windowsToMove.isEmpty else { return }
 
-    // Stop observing in the old group
+    // Capture frame/squeeze before modifying the old group — windows are already
+    // sized for tab-bar mode, so we pass the existing frame directly to setupGroup
+    // to avoid double-squeezing through createGroup → applyClamp.
+    let frame = group.frame
+    let squeezeDelta = group.tabBarSqueezeDelta
+
     for window in windowsToMove {
         windowObserver.stopObserving(window: window)
         expectedFrames.removeValue(forKey: window.id)
     }
 
-    // Remove from old group
     groupManager.releaseWindows(withIDs: ids, from: group)
 
-    // Handle old group dissolution or update
     if !groupManager.groups.contains(where: { $0.id == group.id }) {
         handleGroupDissolution(group: group, panel: panel)
     } else if let newActive = group.activeWindow {
@@ -689,9 +694,8 @@ func moveTabsToNewGroup(withIDs ids: Set<CGWindowID>, from group: TabGroup, pane
         panel.orderAbove(windowID: newActive.id)
     }
 
-    // Create new group with the moved windows at the same frame
-    let frame = group.frame
-    createGroup(with: windowsToMove)
+    // Use setupGroup directly with the known frame to avoid re-clamping
+    setupGroup(with: windowsToMove, frame: frame, squeezeDelta: squeezeDelta)
 }
 
 func closeTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
@@ -749,26 +753,26 @@ panel.setContent(
 )
 ```
 
-**Step 2: Build to verify everything compiles**
+**Step 4: Build to verify everything compiles**
 
 Run: `scripts/build.sh`
 Expected: PASS
 
-**Step 3: Run tests**
+**Step 5: Run tests**
 
 Run: `scripts/test.sh`
 Expected: PASS
 
-**Step 4: Commit**
+**Step 6: Commit**
 
 ```bash
-git add Tabbed/features/TabGroups/TabGroups.swift
-git commit -m "feat: wire up multi-tab release, move-to-new-group, and close callbacks"
+git add Tabbed/features/TabGroups/TabBarView.swift Tabbed/features/TabGroups/TabBarPanel.swift Tabbed/features/TabGroups/TabGroups.swift
+git commit -m "feat: add multi-select, context menu, drag-detach, and multi-tab callbacks"
 ```
 
 ---
 
-### Task 6: Manual testing and edge case fixes
+### Task 5: Manual testing and edge case fixes
 
 **No test file changes — this is integration verification.**
 
@@ -781,18 +785,20 @@ Run: `scripts/build.sh`
 Test each scenario:
 
 1. **Plain click** — clicking a tab switches to it, clears any selection
-2. **Cmd-click** — toggles tabs in/out of selection without switching
+2. **Cmd-click** — toggles tabs in/out of selection without switching active tab
 3. **Shift-click** — selects range from last-clicked to shift-clicked
 4. **Selected tabs highlight** — selected (non-active) tabs show accent color background
-5. **Context menu on unselected tab** — shows menu, acts on just that tab
+5. **Context menu on unselected tab** — shows menu, acts on just that tab, clears selection
 6. **Context menu on selected tab** — shows menu, acts on all selected tabs
-7. **"Release from Group"** — releases tab(s) as standalone windows
-8. **"Move to New Group"** — creates new group with selected tabs
+7. **"Release from Group"** — releases tab(s) as standalone windows (expanded)
+8. **"Move to New Group"** — creates new group with selected tabs at same frame
 9. **"Close Windows"** — closes the windows
 10. **Single-tab drag** — reorders within bar (existing behavior preserved)
 11. **Multi-tab drag** — drags selected tabs as a block, reorders within bar
-12. **Edge: release all tabs** — group dissolves
-13. **Edge: move all tabs to new group** — old group dissolves, new one created
+12. **Drag-off-bar** — vertical drag (>30px) detaches tabs to a new group
+13. **Edge: release all tabs** — group dissolves
+14. **Edge: move all tabs to new group** — old group dissolves, new one created
+15. **Edge: window externally closed** — selection clears stale IDs
 
 **Step 3: Fix any issues found, commit**
 
