@@ -56,14 +56,15 @@ class SwitcherController {
         updatePanelContent()
     }
 
-    /// Cycle through windows within the currently selected group item.
+    /// Cycle through windows within the currently selected group item (MRU order).
     /// No-op if the selected item is not a multi-window group.
     func cycleWithinGroup() {
         guard scope == .global, !items.isEmpty, selectedIndex < items.count else { return }
         guard case .group(let group) = items[selectedIndex], group.windows.count > 1 else { return }
 
-        let current = subSelectedWindowIndex ?? group.activeIndex
-        subSelectedWindowIndex = (current + 1) % group.windows.count
+        let indices = mruWindowIndices(for: group)
+        let currentPos = indices.firstIndex(of: subSelectedWindowIndex ?? group.activeIndex) ?? 0
+        subSelectedWindowIndex = indices[(currentPos + 1) % indices.count]
         updatePanelContent()
     }
 
@@ -87,13 +88,14 @@ class SwitcherController {
         }
     }
 
-    /// Cycle backward through windows within the currently selected group item.
+    /// Cycle backward through windows within the currently selected group item (MRU order).
     func cycleWithinGroupBackward() {
         guard scope == .global, !items.isEmpty, selectedIndex < items.count else { return }
         guard case .group(let group) = items[selectedIndex], group.windows.count > 1 else { return }
 
-        let current = subSelectedWindowIndex ?? group.activeIndex
-        subSelectedWindowIndex = (current - 1 + group.windows.count) % group.windows.count
+        let indices = mruWindowIndices(for: group)
+        let currentPos = indices.firstIndex(of: subSelectedWindowIndex ?? group.activeIndex) ?? 0
+        subSelectedWindowIndex = indices[(currentPos - 1 + indices.count) % indices.count]
         updatePanelContent()
     }
 
@@ -203,6 +205,16 @@ class SwitcherController {
             start > 0,
             end < items.count
         )
+    }
+
+    /// Returns indices into `group.windows` ordered by MRU (most-recent first).
+    private func mruWindowIndices(for group: TabGroup) -> [Int] {
+        let windowIDs = Set(group.windows.map(\.id))
+        let mruIDs = group.focusHistory.filter { windowIDs.contains($0) }
+        let remainingIDs = group.windows.map(\.id).filter { !mruIDs.contains($0) }
+        return (mruIDs + remainingIDs).compactMap { id in
+            group.windows.firstIndex { $0.id == id }
+        }
     }
 
     private func tearDown() {

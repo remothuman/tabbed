@@ -72,19 +72,9 @@ struct SwitcherView: View {
     private func iconCell(item: SwitcherItem, isSelected: Bool) -> some View {
         VStack(spacing: 6) {
             ZStack {
-                if isSelected, let subIndex = subSelectedWindowIndex, let window = item.window(at: subIndex) {
-                    // Sub-selected: show the specific window's icon
-                    if let icon = window.icon {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .frame(width: 64, height: 64)
-                    } else {
-                        Image(systemName: "macwindow")
-                            .font(.system(size: 40))
-                            .frame(width: 64, height: 64)
-                    }
-                } else if item.isGroup {
-                    groupedIconStack(icons: item.icons)
+                if item.isGroup {
+                    let frontIndex = isSelected ? subSelectedWindowIndex : nil
+                    groupedIconStack(icons: item.iconsInMRUOrder(frontIndex: frontIndex, maxVisible: Self.maxGroupIcons))
                 } else if let icon = item.icons.first ?? nil {
                     Image(nsImage: icon)
                         .resizable()
@@ -175,18 +165,9 @@ struct SwitcherView: View {
 
         return HStack(spacing: 10) {
             // Icon(s)
-            if isSelected, let subIndex = subSelectedWindowIndex, let window = item.window(at: subIndex) {
-                // Sub-selected: show the specific window's icon
-                if let icon = window.icon {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .frame(width: 24, height: 24)
-                } else {
-                    Image(systemName: "macwindow")
-                        .frame(width: 24, height: 24)
-                }
-            } else if item.isGroup {
-                groupedIconRowStack(icons: item.icons)
+            if item.isGroup {
+                let frontIndex = isSelected ? subSelectedWindowIndex : nil
+                groupedIconRowStack(icons: item.iconsInMRUOrder(frontIndex: frontIndex, maxVisible: Self.maxGroupIcons))
                     .frame(width: 32, height: 24)
             } else if let icon = item.icons.first ?? nil {
                 Image(nsImage: icon)

@@ -65,4 +65,38 @@ enum SwitcherItem: Identifiable {
         guard case .group(let g) = self else { return nil }
         return g.windows[safe: index]
     }
+
+    /// Icons for ZStack display, capped to `maxVisible`.
+    /// Shows a sliding window into the MRU list anchored on the target.
+    ///
+    /// ZStack renders last element on top, so returned array is:
+    ///   [0] = furthest from target (back)  ...  [last] = target (top)
+    func iconsInMRUOrder(frontIndex: Int?, maxVisible: Int) -> [NSImage?] {
+        guard case .group(let g) = self else { return icons }
+
+        // Build MRU list: most-recent first, windows without history at the end
+        let windowIDs = Set(g.windows.map(\.id))
+        let mruIDs = g.focusHistory.filter { windowIDs.contains($0) }
+        let remainingIDs = g.windows.map(\.id).filter { !mruIDs.contains($0) }
+        let mruList: [WindowInfo] = (mruIDs + remainingIDs).compactMap { id in
+            g.windows.first { $0.id == id }
+        }
+
+        // Find the target's position in MRU order (default: 0 = most-recent)
+        var targetPos = 0
+        if let fi = frontIndex, let target = g.windows[safe: fi],
+           let pos = mruList.firstIndex(where: { $0.id == target.id }) {
+            targetPos = pos
+        }
+
+        // Slide a window of maxVisible starting at the target, wrapping around
+        let count = min(maxVisible, mruList.count)
+        var visible: [WindowInfo] = []
+        for i in 0..<count {
+            visible.append(mruList[(targetPos + i) % mruList.count])
+        }
+
+        // Reverse for ZStack: target (first in visible) becomes last (on top)
+        return visible.reversed().map(\.icon)
+    }
 }
