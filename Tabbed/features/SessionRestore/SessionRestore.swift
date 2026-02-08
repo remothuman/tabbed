@@ -9,15 +9,49 @@ extension AppDelegate {
             !groupManager.isWindowGrouped($0.id)
         }
 
+        Logger.log("[SessionRestore] mode=\(mode) snapshots=\(snapshots.count) liveWindows=\(liveWindows.count)")
+        for (i, snap) in snapshots.enumerated() {
+            let descs = snap.windows.map { "\($0.appName)(\($0.windowID)):\"\($0.title)\"" }
+            Logger.log("[SessionRestore] snapshot[\(i)]: \(descs.joined(separator: ", "))")
+        }
+
+        // Diagnostic: check CG window list for all saved window IDs
+        let savedIDs = Set(snapshots.flatMap { $0.windows.map { $0.windowID } })
+        let liveIDs = Set(liveWindows.map { $0.id })
+        let missingFromLive = savedIDs.subtracting(liveIDs)
+        if !missingFromLive.isEmpty {
+            Logger.log("[SessionRestore] ⚠ \(missingFromLive.count) saved windows missing from liveWindows: \(missingFromLive.sorted())")
+            // Check raw CG list to see if these windows exist at the CG level
+            let cgList = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+            for wid in missingFromLive.sorted() {
+                if let info = cgList.first(where: { ($0[kCGWindowNumber as String] as? CGWindowID) == wid }) {
+                    let layer = info[kCGWindowLayer as String] as? Int ?? -999
+                    let owner = info[kCGWindowOwnerName as String] as? String ?? "?"
+                    let pid = info[kCGWindowOwnerPID as String] as? pid_t ?? 0
+                    var bounds = CGRect.zero
+                    if let bd = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
+                        CGRectMakeWithDictionaryRepresentation(bd, &bounds)
+                    }
+                    Logger.log("[SessionRestore] CG has wid=\(wid): owner=\(owner) pid=\(pid) layer=\(layer) bounds=\(bounds)")
+                } else {
+                    Logger.log("[SessionRestore] CG does NOT have wid=\(wid)")
+                }
+            }
+        }
+
         var claimed = Set<CGWindowID>()
 
-        for snapshot in snapshots {
+        for (snapshotIndex, snapshot) in snapshots.enumerated() {
             guard let matchedWindows = SessionManager.matchGroup(
                 snapshot: snapshot,
                 liveWindows: liveWindows,
                 alreadyClaimed: claimed,
                 mode: mode
-            ) else { continue }
+            ) else {
+                Logger.log("[SessionRestore] snapshot[\(snapshotIndex)] FAILED — skipped")
+                continue
+            }
+            Logger.log("[SessionRestore] snapshot[\(snapshotIndex)] matched \(matchedWindows.count)/\(snapshot.windows.count) windows")
 
             for w in matchedWindows { claimed.insert(w.id) }
 

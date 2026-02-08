@@ -56,6 +56,7 @@ enum SessionManager {
         for snap in snapshot.windows {
             // 1. Exact CGWindowID match — window still exists
             if let byID = liveWindows.first(where: { $0.id == snap.windowID && !claimed.contains($0.id) }) {
+                Logger.log("[SessionMatch] ✓ wid match: \(snap.appName)(\(snap.windowID))")
                 matched.append(byID)
                 claimed.insert(byID.id)
                 continue
@@ -65,14 +66,19 @@ enum SessionManager {
             if let byTitle = liveWindows.first(where: {
                 !claimed.contains($0.id) && $0.bundleID == snap.bundleID && $0.title == snap.title
             }) {
+                Logger.log("[SessionMatch] ✓ title match: \(snap.appName)(\(snap.windowID)) → live(\(byTitle.id))")
                 matched.append(byTitle)
                 claimed.insert(byTitle.id)
                 continue
             }
 
             // 3. No match — skip this window.
+            let widInLive = liveWindows.contains { $0.id == snap.windowID }
+            let widClaimed = claimed.contains(snap.windowID)
+            Logger.log("[SessionMatch] ✗ no match: \(snap.appName)(\(snap.windowID)):\"\(snap.title)\" bundle=\(snap.bundleID) | widInLive=\(widInLive) widClaimed=\(widClaimed)")
             // Smart mode: ALL windows must be present, so fail the whole group.
             if mode == .smart {
+                Logger.log("[SessionMatch] → smart mode: rejecting entire group")
                 return nil
             }
         }
