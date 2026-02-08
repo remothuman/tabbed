@@ -65,6 +65,36 @@ class TabGroup: Identifiable, ObservableObject {
         return removeWindow(at: index)
     }
 
+    /// Remove multiple windows by ID. Returns removed windows in their original order.
+    func removeWindows(withIDs ids: Set<CGWindowID>) -> [WindowInfo] {
+        guard !ids.isEmpty else { return [] }
+
+        let activeID = activeWindow?.id
+        var removed: [WindowInfo] = []
+
+        // Remove from end to avoid index shifting issues
+        for index in stride(from: windows.count - 1, through: 0, by: -1) {
+            if ids.contains(windows[index].id) {
+                let window = windows.remove(at: index)
+                focusHistory.removeAll { $0 == window.id }
+                cycleOrder.removeAll { $0 == window.id }
+                removed.append(window)
+            }
+        }
+        removed.reverse() // Restore original order
+
+        // Fix activeIndex
+        if windows.isEmpty {
+            activeIndex = 0
+        } else if let activeID, let newIndex = windows.firstIndex(where: { $0.id == activeID }) {
+            activeIndex = newIndex
+        } else {
+            activeIndex = max(0, min(activeIndex, windows.count - 1))
+        }
+
+        return removed
+    }
+
     func switchTo(index: Int) {
         guard index >= 0, index < windows.count else { return }
         activeIndex = index
@@ -144,6 +174,22 @@ class TabGroup: Identifiable, ObservableObject {
             activeIndex -= 1
         } else if source > activeIndex, adjustedDestination <= activeIndex {
             activeIndex += 1
+        }
+    }
+
+    /// Move multiple tabs so they form a contiguous block starting at `toIndex` in the final array.
+    /// Preserves relative order of moved tabs. `toIndex` is clamped to valid range.
+    func moveTabs(withIDs ids: Set<CGWindowID>, toIndex: Int) {
+        let moved = windows.filter { ids.contains($0.id) }
+        guard !moved.isEmpty else { return }
+
+        let activeID = activeWindow?.id
+        windows.removeAll { ids.contains($0.id) }
+        let insertAt = max(0, min(toIndex, windows.count))
+        windows.insert(contentsOf: moved, at: insertAt)
+
+        if let activeID, let newIndex = windows.firstIndex(where: { $0.id == activeID }) {
+            activeIndex = newIndex
         }
     }
 }

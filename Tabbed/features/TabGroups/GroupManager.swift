@@ -49,6 +49,21 @@ class GroupManager: ObservableObject {
         }
     }
 
+    /// Remove multiple windows from a group. Returns the removed windows.
+    /// Auto-dissolves the group if it becomes empty.
+    @discardableResult
+    func releaseWindows(withIDs ids: Set<CGWindowID>, from group: TabGroup) -> [WindowInfo] {
+        guard groups.contains(where: { $0.id == group.id }) else { return [] }
+        let removed = group.removeWindows(withIDs: ids)
+
+        if group.windows.isEmpty {
+            dissolveGroup(group)
+        } else {
+            objectWillChange.send()
+        }
+        return removed
+    }
+
     /// Remove the group from management. Note: the group's `windows` array is
     /// intentionally left intact so callers (e.g., `AppDelegate.handleGroupDissolution`)
     /// can still access the surviving windows for cleanup (expanding them into tab bar space).

@@ -155,4 +155,31 @@ final class GroupManagerTests: XCTestCase {
         XCTAssertEqual(gm.groups.count, 0)
     }
 
+    func testReleaseWindowsFromGroup() {
+        let gm = GroupManager()
+        let windows = [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)]
+        let group = gm.createGroup(with: windows, frame: .zero)!
+        let released = gm.releaseWindows(withIDs: [1, 3], from: group)
+        XCTAssertEqual(released.map(\.id).sorted(), [1, 3])
+        XCTAssertEqual(group.windows.count, 1)
+        XCTAssertEqual(gm.groups.count, 1)
+    }
+
+    func testReleaseAllWindowsDissolvesGroup() {
+        let gm = GroupManager()
+        let windows = [makeWindow(id: 1), makeWindow(id: 2)]
+        let group = gm.createGroup(with: windows, frame: .zero)!
+        let released = gm.releaseWindows(withIDs: [1, 2], from: group)
+        XCTAssertEqual(released.count, 2)
+        XCTAssertEqual(gm.groups.count, 0)
+    }
+
+    func testReleaseWindowsFromForeignGroupIsIgnored() {
+        let gm = GroupManager()
+        let foreignGroup = TabGroup(windows: [makeWindow(id: 10), makeWindow(id: 11)], frame: .zero)
+        let released = gm.releaseWindows(withIDs: [10], from: foreignGroup)
+        XCTAssertTrue(released.isEmpty)
+        XCTAssertEqual(foreignGroup.windows.count, 2)
+    }
+
 }

@@ -101,4 +101,102 @@ final class TabGroupTests: XCTestCase {
         XCTAssertEqual(group.activeIndex, 1)
         XCTAssertEqual(group.activeWindow?.id, 1)
     }
+
+    func testRemoveWindowsWithIDs() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4)], frame: .zero)
+        group.switchTo(index: 2) // Window 3 is active
+        let removed = group.removeWindows(withIDs: [1, 3])
+        XCTAssertEqual(removed.map(\.id).sorted(), [1, 3])
+        XCTAssertEqual(group.windows.map(\.id), [2, 4])
+        // Active was window 3 (removed), should fall to valid index
+        XCTAssertTrue(group.activeIndex >= 0 && group.activeIndex < group.windows.count)
+    }
+
+    func testRemoveWindowsWithIDsPreservesOrder() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
+        group.switchTo(index: 4) // Window 5 is active
+        let removed = group.removeWindows(withIDs: [2, 4])
+        XCTAssertEqual(removed.map(\.id), [2, 4])
+        XCTAssertEqual(group.windows.map(\.id), [1, 3, 5])
+        XCTAssertEqual(group.activeWindow?.id, 5)
+    }
+
+    func testRemoveWindowsWithIDsActiveBeforeRemoved() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+        group.switchTo(index: 0) // Window 1 is active
+        let removed = group.removeWindows(withIDs: [2, 3])
+        XCTAssertEqual(removed.map(\.id), [2, 3])
+        XCTAssertEqual(group.activeWindow?.id, 1)
+        XCTAssertEqual(group.activeIndex, 0)
+    }
+
+    func testRemoveWindowsEmptySetDoesNothing() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2)], frame: .zero)
+        let removed = group.removeWindows(withIDs: [])
+        XCTAssertTrue(removed.isEmpty)
+        XCTAssertEqual(group.windows.count, 2)
+    }
+
+    func testRemoveAllWindows() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+        let removed = group.removeWindows(withIDs: [1, 2, 3])
+        XCTAssertEqual(removed.count, 3)
+        XCTAssertTrue(group.windows.isEmpty)
+        XCTAssertEqual(group.activeIndex, 0)
+    }
+
+    func testMoveTabsToEnd() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
+        group.switchTo(index: 0) // Window 1 active
+        // toIndex=4 means block's first element targets final position 4.
+        // remaining=[2,4,5], insertAt=min(4, 3)=3 → [2,4,5,1,3]
+        group.moveTabs(withIDs: [1, 3], toIndex: 4)
+        XCTAssertEqual(group.windows.map(\.id), [2, 4, 5, 1, 3])
+        XCTAssertEqual(group.activeWindow?.id, 1)
+    }
+
+    func testMoveTabsToBeginning() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4)], frame: .zero)
+        group.switchTo(index: 3) // Window 4 active
+        // toIndex=0, remaining=[1,2], insertAt=0 → [3,4,1,2]
+        group.moveTabs(withIDs: [3, 4], toIndex: 0)
+        XCTAssertEqual(group.windows.map(\.id), [3, 4, 1, 2])
+        XCTAssertEqual(group.activeWindow?.id, 4)
+    }
+
+    func testMoveTabsPreservesRelativeOrder() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
+        // toIndex=1, remaining=[1,3,5], insertAt=1 → [1,2,4,3,5]
+        group.moveTabs(withIDs: [4, 2], toIndex: 1)
+        XCTAssertEqual(group.windows.map(\.id), [1, 2, 4, 3, 5])
+    }
+
+    func testMoveTabsSingleTab() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+        // toIndex=2, remaining=[2,3], insertAt=min(2, 2)=2 → [2,3,1]
+        group.moveTabs(withIDs: [1], toIndex: 2)
+        XCTAssertEqual(group.windows.map(\.id), [2, 3, 1])
+    }
+
+    func testMoveTabsToMiddle() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4), makeWindow(id: 5)], frame: .zero)
+        // toIndex=2, remaining=[1,3,5], insertAt=min(2, 3)=2 → [1,3,2,4,5]
+        group.moveTabs(withIDs: [2, 4], toIndex: 2)
+        XCTAssertEqual(group.windows.map(\.id), [1, 3, 2, 4, 5])
+    }
+
+    func testMoveTabsNoOpWhenAlreadyInPlace() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+        group.moveTabs(withIDs: [1, 2], toIndex: 0)
+        XCTAssertEqual(group.windows.map(\.id), [1, 2, 3])
+    }
+
+    func testMoveTabsActiveNotMoved() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4)], frame: .zero)
+        group.switchTo(index: 1) // Window 2 is active
+        // Move windows 3,4 to the beginning; window 2 should stay active
+        group.moveTabs(withIDs: [3, 4], toIndex: 0)
+        XCTAssertEqual(group.windows.map(\.id), [3, 4, 1, 2])
+        XCTAssertEqual(group.activeWindow?.id, 2)
+    }
 }
