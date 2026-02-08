@@ -50,6 +50,7 @@ final class HotkeyManagerTests: XCTestCase {
             releaseTab: KeyBinding(modifiers: 0, keyCode: 0),
             groupAllInSpace: KeyBinding(modifiers: 0, keyCode: 0),
             cycleTab: KeyBinding(modifiers: 0, keyCode: 0),
+            closeTab: KeyBinding(modifiers: 0, keyCode: 0),
             switchToTab: (1...9).map { _ in KeyBinding(modifiers: 0, keyCode: 0) },
             globalSwitcher: KeyBinding(modifiers: 0, keyCode: 0)
         )
@@ -382,5 +383,67 @@ final class HotkeyManagerTests: XCTestCase {
         let binding = KeyBinding(modifiers: hyperMods, keyCode: KeyBinding.keyCodeT)
         let event = makeKeyDown(keyCode: KeyBinding.keyCodeT, modifiers: hyperMods)
         XCTAssertTrue(binding.matches(event), "Hyper+T should still match without capsLock flag")
+    }
+
+    // MARK: - Close Tab Tests
+
+    func testDefaultCloseTabBinding() {
+        let binding = KeyBinding.defaultCloseTab
+        XCTAssertEqual(binding.modifiers, KeyBinding.hyperModifiers)
+        XCTAssertEqual(binding.keyCode, KeyBinding.keyCodeQ)
+        XCTAssertFalse(binding.isUnbound)
+    }
+
+    func testCloseTabDispatch() {
+        var config = unboundConfig()
+        config.closeTab = KeyBinding(modifiers: hyperMods, keyCode: KeyBinding.keyCodeQ)
+        let manager = HotkeyManager(config: config)
+        var called = false
+        manager.onCloseTab = { called = true }
+
+        let event = makeKeyDown(keyCode: KeyBinding.keyCodeQ, modifiers: hyperMods)
+        let result = manager.handleKeyDown(event)
+
+        XCTAssertTrue(result, "Should suppress Hyper+Q for closeTab")
+        XCTAssertTrue(called, "Should fire onCloseTab")
+    }
+
+    func testCloseTabUnboundDoesNotFire() {
+        let manager = HotkeyManager(config: unboundConfig())
+        var called = false
+        manager.onCloseTab = { called = true }
+
+        let event = makeKeyDown(keyCode: KeyBinding.keyCodeQ, modifiers: hyperMods)
+        let result = manager.handleKeyDown(event)
+
+        XCTAssertFalse(result, "Should pass through when closeTab is unbound")
+        XCTAssertFalse(called)
+    }
+
+    // MARK: - ShortcutConfig Backward Compatibility
+
+    func testShortcutConfigDecodesWithoutCloseTab() throws {
+        // Encode a config-like JSON without the closeTab key
+        let json = """
+        {
+            "newTab": {"modifiers": 0, "keyCode": 0},
+            "releaseTab": {"modifiers": 0, "keyCode": 0},
+            "groupAllInSpace": {"modifiers": 0, "keyCode": 0},
+            "cycleTab": {"modifiers": 0, "keyCode": 0},
+            "switchToTab": [{"modifiers": 0, "keyCode": 0}],
+            "globalSwitcher": {"modifiers": 0, "keyCode": 0}
+        }
+        """.data(using: .utf8)!
+
+        let config = try JSONDecoder().decode(ShortcutConfig.self, from: json)
+        XCTAssertEqual(config.closeTab, KeyBinding.defaultCloseTab,
+                       "Missing closeTab key should default to Hyper+Q")
+    }
+
+    func testShortcutConfigRoundTripsWithCloseTab() throws {
+        let original = ShortcutConfig.default
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ShortcutConfig.self, from: data)
+        XCTAssertEqual(decoded.closeTab, original.closeTab)
     }
 }

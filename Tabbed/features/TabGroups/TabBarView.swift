@@ -181,6 +181,9 @@ struct TabBarView: View {
                 selectedIDs.insert(window.id)
             }
             lastClickedIndex = index
+        } else if modifiers.contains(.shift) && index == group.activeIndex {
+            // Shift-click active tab: close its window
+            onCloseTab(index)
         } else if modifiers.contains(.shift), let anchor = lastClickedIndex {
             // Shift-click: range select from anchor to clicked
             let range = min(anchor, index)...max(anchor, index)

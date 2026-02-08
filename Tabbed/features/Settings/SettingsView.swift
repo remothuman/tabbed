@@ -34,8 +34,10 @@ struct SettingsView: View {
         TabView {
             generalTab
                 .tabItem { Label("General", systemImage: "gear") }
-            appearanceTab
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+            tabBarTab
+                .tabItem { Label("Tab Bar", systemImage: "paintbrush") }
+            shortcutsTab
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
             switcherTab
                 .tabItem { Label("Switcher", systemImage: "rectangle.grid.1x2") }
         }
@@ -131,19 +133,52 @@ struct SettingsView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            Divider()
+            Spacer()
+        }
+    }
 
-            Text("Keyboard Shortcuts")
+    // MARK: - Tab Bar Tab
+
+    private var tabBarTab: some View {
+        VStack(spacing: 0) {
+            Text("Tab Bar Style")
                 .font(.headline)
-                .padding(.top, 12)
+                .padding(.top, 16)
+                .padding(.bottom, 4)
+
+            Text("Choose how tabs are laid out in the tab bar.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
 
-            Divider()
+            Picker("Style", selection: $tabBarConfig.style) {
+                Text("Equal Width").tag(TabBarStyle.equal)
+                Text("Compact").tag(TabBarStyle.compact)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
 
+            Text(tabBarStyleDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Shortcuts Tab
+
+    private var shortcutsTab: some View {
+        VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 1) {
                     shortcutRow(.newTab)
                     shortcutRow(.releaseTab)
+                    shortcutRow(.closeTab)
                     shortcutRow(.groupAllInSpace)
                     shortcutRow(.cycleTab)
                     shortcutRow(.globalSwitcher)
@@ -179,39 +214,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Appearance Tab
-
-    private var appearanceTab: some View {
-        VStack(spacing: 0) {
-            Text("Tab Bar Style")
-                .font(.headline)
-                .padding(.top, 16)
-                .padding(.bottom, 4)
-
-            Text("Choose how tabs are laid out in the tab bar.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 8)
-
-            Picker("Style", selection: $tabBarConfig.style) {
-                Text("Equal Width").tag(TabBarStyle.equal)
-                Text("Compact").tag(TabBarStyle.compact)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-
-            Text(tabBarStyleDescription)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 12)
-
-            Spacer()
-        }
-    }
-
     private var tabBarStyleDescription: String {
         switch tabBarConfig.style {
         case .equal:
@@ -228,7 +230,8 @@ struct SettingsView: View {
             switcherStyleSection(
                 title: "Global Switcher",
                 description: "Switches between all windows and tab groups.",
-                selection: $switcherConfig.globalStyle
+                selection: $switcherConfig.globalStyle,
+                shortcutAction: .globalSwitcher
             )
 
             Divider()
@@ -236,14 +239,15 @@ struct SettingsView: View {
             switcherStyleSection(
                 title: "Tab Cycling",
                 description: "Cycles through tabs within the active group.",
-                selection: $switcherConfig.tabCycleStyle
+                selection: $switcherConfig.tabCycleStyle,
+                shortcutAction: .cycleTab
             )
 
             Spacer()
         }
     }
 
-    private func switcherStyleSection(title: String, description: String, selection: Binding<SwitcherStyle>) -> some View {
+    private func switcherStyleSection(title: String, description: String, selection: Binding<SwitcherStyle>, shortcutAction: ShortcutAction? = nil) -> some View {
         VStack(spacing: 0) {
             Text(title)
                 .font(.headline)
@@ -268,7 +272,13 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12)
                 .padding(.top, 4)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
+
+            if let action = shortcutAction {
+                shortcutRow(action)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            }
         }
     }
 
@@ -317,6 +327,18 @@ struct SettingsView: View {
                     )
             }
             .buttonStyle(.plain)
+
+            Button {
+                let unbound = KeyBinding(modifiers: 0, keyCode: 0)
+                updateBinding(for: action, to: unbound)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(binding.isUnbound ? 0 : 1)
+            .disabled(binding.isUnbound)
+            .help("Disable this shortcut")
         }
         .padding(.vertical, 2)
     }
@@ -325,6 +347,7 @@ struct SettingsView: View {
         switch action {
         case .newTab: return config.newTab
         case .releaseTab: return config.releaseTab
+        case .closeTab: return config.closeTab
         case .groupAllInSpace: return config.groupAllInSpace
         case .cycleTab: return config.cycleTab
         case .globalSwitcher: return config.globalSwitcher
@@ -339,6 +362,7 @@ struct SettingsView: View {
         switch action {
         case .newTab: config.newTab = binding
         case .releaseTab: config.releaseTab = binding
+        case .closeTab: config.closeTab = binding
         case .groupAllInSpace: config.groupAllInSpace = binding
         case .cycleTab: config.cycleTab = binding
         case .globalSwitcher: config.globalSwitcher = binding
@@ -352,6 +376,7 @@ struct SettingsView: View {
         let unused = KeyBinding(modifiers: 0, keyCode: 0)
         if action != .newTab, config.newTab == binding { config.newTab = unused }
         if action != .releaseTab, config.releaseTab == binding { config.releaseTab = unused }
+        if action != .closeTab, config.closeTab == binding { config.closeTab = unused }
         if action != .groupAllInSpace, config.groupAllInSpace == binding { config.groupAllInSpace = unused }
         if action != .cycleTab, config.cycleTab == binding { config.cycleTab = unused }
         if action != .globalSwitcher, config.globalSwitcher == binding { config.globalSwitcher = unused }
@@ -368,6 +393,7 @@ struct SettingsView: View {
 enum ShortcutAction: Equatable {
     case newTab
     case releaseTab
+    case closeTab
     case groupAllInSpace
     case cycleTab
     case globalSwitcher
@@ -377,6 +403,7 @@ enum ShortcutAction: Equatable {
         switch self {
         case .newTab: return "New Tab / New Group"
         case .releaseTab: return "Release Tab"
+        case .closeTab: return "Close Tab"
         case .groupAllInSpace: return "Group All in Space"
         case .cycleTab: return "Cycle Tabs (MRU)"
         case .globalSwitcher: return "Global Switcher"
