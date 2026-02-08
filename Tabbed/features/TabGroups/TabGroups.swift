@@ -399,6 +399,10 @@ extension AppDelegate {
 
     func mergeGroup(_ source: TabGroup, into target: TabGroup) {
         guard let sourcePanel = tabBarPanels[source.id] else { return }
+        if target.spaceID != 0, source.spaceID != 0, target.spaceID != source.spaceID {
+            Logger.log("[SPACE] Rejected merge: source space \(source.spaceID) != target space \(target.spaceID)")
+            return
+        }
         let windowsToMerge = source.windows
         guard !windowsToMerge.isEmpty else { return }
 
@@ -547,6 +551,11 @@ extension AppDelegate {
     ) {
         guard let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
               let targetPanel = tabBarPanels[targetGroupID] else { return }
+
+        if targetGroup.spaceID != 0, sourceGroup.spaceID != 0, targetGroup.spaceID != sourceGroup.spaceID {
+            Logger.log("[SPACE] Rejected cross-panel drop: source space \(sourceGroup.spaceID) != target space \(targetGroup.spaceID)")
+            return
+        }
 
         Logger.log("[DRAG] Cross-panel drop: \(ids) from group \(sourceGroup.id) to group \(targetGroupID) at index \(insertionIndex)")
         targetGroup.dropIndicatorIndex = nil
