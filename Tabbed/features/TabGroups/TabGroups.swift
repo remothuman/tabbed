@@ -25,6 +25,11 @@ extension AppDelegate {
                 self?.addWindow(window, to: group)
                 self?.dismissWindowPicker()
             },
+            onMergeGroup: { [weak self] sourceGroup in
+                guard let group = group else { return }
+                self?.mergeGroup(sourceGroup, into: group)
+                self?.dismissWindowPicker()
+            },
             onDismiss: { [weak self] in
                 self?.dismissWindowPicker()
             },
@@ -347,6 +352,47 @@ extension AppDelegate {
               let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id] else { return nil }
         return (group, panel)
+    }
+
+    func mergeGroup(_ source: TabGroup, into target: TabGroup) {
+        guard let sourcePanel = tabBarPanels[source.id] else { return }
+        let windowsToMerge = source.windows
+        guard !windowsToMerge.isEmpty else { return }
+
+        // Stop observing source windows (they'll be re-observed under target)
+        for window in windowsToMerge {
+            windowObserver.stopObserving(window: window)
+            expectedFrames.removeValue(forKey: window.id)
+        }
+
+        // Clean up source group state (like disbandGroup but without frame expansion)
+        if autoCaptureGroup === source { deactivateAutoCapture() }
+        if lastActiveGroupID == source.id { lastActiveGroupID = nil }
+        globalMRU.removeAll { $0 == .group(source.id) }
+        if cyclingGroup === source { cyclingGroup = nil }
+        resyncWorkItems[source.id]?.cancel()
+        resyncWorkItems.removeValue(forKey: source.id)
+
+        // Dissolve source group and close its panel
+        groupManager.dissolveGroup(source)
+        sourcePanel.close()
+        tabBarPanels.removeValue(forKey: source.id)
+
+        // Add all source windows to target group
+        for window in windowsToMerge {
+            setExpectedFrame(target.frame, for: [window.id])
+            AccessibilityHelper.setFrame(of: window.element, to: target.frame)
+            groupManager.addWindow(window, to: target)
+            windowObserver.observe(window: window)
+        }
+
+        // Keep target's current active tab
+        if let panel = tabBarPanels[target.id],
+           let activeWindow = target.activeWindow {
+            panel.orderAbove(windowID: activeWindow.id)
+        }
+
+        evaluateAutoCapture()
     }
 
     func handleHotkeyNewTab() {

@@ -5,6 +5,7 @@ struct WindowPickerView: View {
     @ObservedObject var groupManager: GroupManager
     let onCreateGroup: ([WindowInfo]) -> Void
     let onAddToGroup: (WindowInfo) -> Void
+    let onMergeGroup: (TabGroup) -> Void
     let onDismiss: () -> Void
 
     /// If non-nil, we're adding to an existing group (show single-select).
@@ -29,6 +30,26 @@ struct WindowPickerView: View {
         sortedWindows.filter { !groupManager.isWindowGrouped($0.id) }
     }
 
+    /// Other groups on the same Space as addingToGroup (for merge).
+    private var mergeableGroups: [TabGroup] {
+        guard let target = addingToGroup,
+              let targetWindowID = target.activeWindow?.id else { return [] }
+        let conn = CGSMainConnectionID()
+        let targetSpaces = CGSCopySpacesForWindows(conn, 0x7, [targetWindowID] as CFArray) as? [UInt64] ?? []
+        guard let targetSpace = targetSpaces.first else { return [] }
+        return groupManager.groups.filter { group in
+            guard group.id != target.id,
+                  let windowID = group.activeWindow?.id else { return false }
+            let spaces = CGSCopySpacesForWindows(conn, 0x7, [windowID] as CFArray) as? [UInt64] ?? []
+            return spaces.first == targetSpace
+        }
+    }
+
+    /// Total navigable items: ungrouped windows + mergeable groups.
+    private var totalNavigableCount: Int {
+        ungroupedWindows.count + mergeableGroups.count
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -50,23 +71,29 @@ struct WindowPickerView: View {
     }
 
     private func moveFocus(by delta: Int) {
-        let ungrouped = ungroupedWindows
-        guard !ungrouped.isEmpty else { return }
-        focusedIndex = max(0, min(ungrouped.count - 1, focusedIndex + delta))
+        let count = totalNavigableCount
+        guard count > 0 else { return }
+        focusedIndex = max(0, min(count - 1, focusedIndex + delta))
     }
 
     private func confirmFocused() {
         let ungrouped = ungroupedWindows
-        guard focusedIndex >= 0, focusedIndex < ungrouped.count else { return }
-        let window = ungrouped[focusedIndex]
-        if addingToGroup != nil {
-            onAddToGroup(window)
-        } else {
-            if selectedIDs.contains(window.id) {
-                selectedIDs.remove(window.id)
+        if focusedIndex < ungrouped.count {
+            let window = ungrouped[focusedIndex]
+            if addingToGroup != nil {
+                onAddToGroup(window)
             } else {
-                selectedIDs.insert(window.id)
+                if selectedIDs.contains(window.id) {
+                    selectedIDs.remove(window.id)
+                } else {
+                    selectedIDs.insert(window.id)
+                }
             }
+        } else if addingToGroup != nil {
+            let groupIndex = focusedIndex - ungrouped.count
+            let groups = mergeableGroups
+            guard groupIndex >= 0, groupIndex < groups.count else { return }
+            onMergeGroup(groups[groupIndex])
         }
     }
 
@@ -116,7 +143,7 @@ struct WindowPickerView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.top, 40)
-            } else if windowManager.availableWindows.isEmpty {
+            } else if ungroupedWindows.isEmpty && mergeableGroups.isEmpty {
                 VStack(spacing: 12) {
                     Text("No available windows")
                         .foregroundStyle(.secondary)
@@ -130,17 +157,44 @@ struct WindowPickerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.top, 40)
             } else {
-                let windows = sortedWindows
                 LazyVStack(spacing: 2) {
-                    ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
-                        let isGrouped = groupManager.isWindowGrouped(window.id)
-                        let ungroupedIdx = isGrouped ? -1 : ungroupedWindows.firstIndex(where: { $0.id == window.id }) ?? -1
-                        windowRow(window: window, isGrouped: isGrouped, isFocused: ungroupedIdx == focusedIndex)
+                    if addingToGroup != nil {
+                        // Add-to-group mode: ungrouped windows + mergeable groups
+                        ForEach(Array(ungroupedWindows.enumerated()), id: \.element.id) { index, window in
+                            windowRow(window: window, isGrouped: false, isFocused: index == focusedIndex)
+                        }
+
+                        let groups = mergeableGroups
+                        if !groups.isEmpty {
+                            sectionHeader("Groups")
+                            ForEach(Array(groups.enumerated()), id: \.element.id) { index, group in
+                                let navIndex = ungroupedWindows.count + index
+                                groupRow(group: group, isFocused: navIndex == focusedIndex)
+                            }
+                        }
+                    } else {
+                        // New-group mode: all windows, grouped ones disabled
+                        let windows = sortedWindows
+                        ForEach(Array(windows.enumerated()), id: \.element.id) { _, window in
+                            let isGrouped = groupManager.isWindowGrouped(window.id)
+                            let ungroupedIdx = isGrouped ? -1 : ungroupedWindows.firstIndex(where: { $0.id == window.id }) ?? -1
+                            windowRow(window: window, isGrouped: isGrouped, isFocused: ungroupedIdx == focusedIndex)
+                        }
                     }
                 }
                 .padding(8)
             }
         }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
     }
 
     private func windowRow(window: WindowInfo, isGrouped: Bool, isFocused: Bool) -> some View {
@@ -198,6 +252,76 @@ struct WindowPickerView: View {
         .buttonStyle(.plain)
         .disabled(isGrouped)
         .opacity(isGrouped ? 0.4 : 1)
+    }
+
+    private func groupRow(group: TabGroup, isFocused: Bool) -> some View {
+        Button {
+            onMergeGroup(group)
+        } label: {
+            HStack(spacing: 8) {
+                groupIconStack(group: group)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(groupDisplayName(group))
+                        .font(.system(size: 12, weight: .medium))
+                    Text("\(group.windows.count) tabs")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.right.square")
+                    .foregroundStyle(.secondary)
+                    .font(.system(size: 12))
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isFocused ? Color.primary.opacity(0.08) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(isFocused ? Color.accentColor.opacity(0.5) : Color.clear, lineWidth: 1.5)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func groupDisplayName(_ group: TabGroup) -> String {
+        let appNames = Array(Set(group.windows.map(\.appName)))
+        if appNames.count == 1 {
+            return "\(group.windows.count) \(appNames[0]) windows"
+        } else if appNames.count <= 2 {
+            return appNames.joined(separator: ", ")
+        } else {
+            return "\(appNames.prefix(2).joined(separator: ", ")) + \(appNames.count - 2) more"
+        }
+    }
+
+    /// Small overlapping icons for a group row.
+    private func groupIconStack(group: TabGroup) -> some View {
+        let icons = Array(group.windows.prefix(4).map(\.icon))
+        let count = icons.count
+        let iconSize: CGFloat = 20
+        let overlap: CGFloat = 8
+
+        return ZStack {
+            ForEach(Array(icons.enumerated()), id: \.offset) { index, icon in
+                Group {
+                    if let icon {
+                        Image(nsImage: icon)
+                            .resizable()
+                    } else {
+                        Image(systemName: "macwindow")
+                            .font(.system(size: 12))
+                    }
+                }
+                .frame(width: iconSize, height: iconSize)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+                .shadow(color: .black.opacity(0.1), radius: 1, y: 0.5)
+                .offset(x: CGFloat(index) * overlap - CGFloat(count - 1) * overlap / 2)
+            }
+        }
+        .frame(width: CGFloat(min(count, 4)) * overlap + iconSize - overlap, height: iconSize)
     }
 
     @ViewBuilder
