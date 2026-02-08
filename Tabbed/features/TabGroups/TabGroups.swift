@@ -61,9 +61,10 @@ extension AppDelegate {
               let firstFrame = AccessibilityHelper.getFrame(of: first.element) else { return }
 
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: firstFrame.origin)
-        let result = ScreenCompensation.clampResult(frame: firstFrame, visibleFrame: visibleFrame)
-        let windowFrame = result.frame
-        let squeezeDelta = result.squeezeDelta
+        let (windowFrame, squeezeDelta) = applyClamp(
+            element: first.element, windowID: first.id,
+            frame: firstFrame, visibleFrame: visibleFrame
+        )
 
         guard let group = setupGroup(with: windows, frame: windowFrame, squeezeDelta: squeezeDelta) else { return }
         if let activeWindow = group.activeWindow {
@@ -128,15 +129,14 @@ extension AppDelegate {
                   let actualFrame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
             let visibleFrame = CoordinateConverter.visibleFrameInAX(at: actualFrame.origin)
-            let result = ScreenCompensation.clampResult(frame: actualFrame, visibleFrame: visibleFrame)
-            let clamped = result.frame
+            let (clamped, squeezeDelta) = self.applyClamp(
+                element: activeWindow.element, windowID: activeWindow.id,
+                frame: actualFrame, visibleFrame: visibleFrame,
+                existingSqueezeDelta: group.tabBarSqueezeDelta
+            )
             if !self.framesMatch(clamped, group.frame) {
-                if clamped != actualFrame {
-                    self.setExpectedFrame(clamped, for: [activeWindow.id])
-                    AccessibilityHelper.setFrame(of: activeWindow.element, to: clamped)
-                }
                 group.frame = clamped
-                group.tabBarSqueezeDelta = result.squeezeDelta
+                group.tabBarSqueezeDelta = squeezeDelta
                 let others = group.windows.filter { $0.id != activeWindow.id }
                 if !others.isEmpty {
                     self.setExpectedFrame(clamped, for: others.map(\.id))

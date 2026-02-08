@@ -1,5 +1,45 @@
 import AppKit
 
+// MARK: - Screen Compensation Helpers
+
+extension AppDelegate {
+
+    /// Apply screen compensation: push window down for tab bar and shrink height.
+    ///
+    /// When `existingSqueezeDelta > 0`, the window was already squeezed but the
+    /// app reverted the position. In that case we only re-push position without
+    /// re-shrinking (prevents cumulative height loss on each clamp cycle).
+    func applyClamp(
+        element: AXUIElement,
+        windowID: CGWindowID,
+        frame: CGRect,
+        visibleFrame: CGRect,
+        existingSqueezeDelta: CGFloat = 0
+    ) -> (frame: CGRect, squeezeDelta: CGFloat) {
+        let result = ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame)
+        guard result.squeezeDelta > 0 else {
+            return (result.frame, result.squeezeDelta)
+        }
+
+        if existingSqueezeDelta > 0 {
+            // Already squeezed — re-push position only, don't re-shrink height.
+            let targetY = visibleFrame.origin.y + ScreenCompensation.tabBarHeight
+            let targetFrame = CGRect(x: frame.origin.x, y: targetY,
+                                     width: frame.width, height: frame.height)
+            Logger.log("[CLAMP] re-push wid=\(windowID) frame=\(frame) → y=\(targetY) (height unchanged)")
+            setExpectedFrame(targetFrame, for: [windowID])
+            AccessibilityHelper.setPosition(of: element, to: targetFrame.origin)
+            return (targetFrame, existingSqueezeDelta)
+        }
+
+        // First-time squeeze: push position down and shrink height.
+        Logger.log("[CLAMP] squeeze wid=\(windowID) frame=\(frame) → \(result.frame) delta=\(result.squeezeDelta)")
+        setExpectedFrame(result.frame, for: [windowID])
+        AccessibilityHelper.setFrame(of: element, to: result.frame)
+        return (result.frame, result.squeezeDelta)
+    }
+}
+
 // MARK: - Window Event Handlers
 
 extension AppDelegate {
@@ -14,15 +54,14 @@ extension AppDelegate {
         if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
 
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
-        let clampResult = ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame)
-        let adjustedFrame = clampResult.frame
-        if adjustedFrame != frame {
-            setExpectedFrame(adjustedFrame, for: [windowID])
-            AccessibilityHelper.setFrame(of: activeWindow.element, to: adjustedFrame)
-        }
+        let (adjustedFrame, squeezeDelta) = applyClamp(
+            element: activeWindow.element, windowID: windowID,
+            frame: frame, visibleFrame: visibleFrame,
+            existingSqueezeDelta: group.tabBarSqueezeDelta
+        )
 
         group.frame = adjustedFrame
-        group.tabBarSqueezeDelta = clampResult.squeezeDelta
+        group.tabBarSqueezeDelta = squeezeDelta
 
         let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
         setExpectedFrame(adjustedFrame, for: otherIDs)
@@ -58,15 +97,14 @@ extension AppDelegate {
         }
 
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
-        let clampResult = ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame)
-        let adjustedFrame = clampResult.frame
-        if adjustedFrame != frame {
-            setExpectedFrame(adjustedFrame, for: [windowID])
-            AccessibilityHelper.setFrame(of: activeWindow.element, to: adjustedFrame)
-        }
+        let (adjustedFrame, squeezeDelta) = applyClamp(
+            element: activeWindow.element, windowID: windowID,
+            frame: frame, visibleFrame: visibleFrame,
+            existingSqueezeDelta: group.tabBarSqueezeDelta
+        )
 
         group.frame = adjustedFrame
-        group.tabBarSqueezeDelta = clampResult.squeezeDelta
+        group.tabBarSqueezeDelta = squeezeDelta
 
         let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
         setExpectedFrame(adjustedFrame, for: otherIDs)
@@ -89,16 +127,15 @@ extension AppDelegate {
                   let currentFrame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
             let visibleFrame = CoordinateConverter.visibleFrameInAX(at: currentFrame.origin)
-            let result = ScreenCompensation.clampResult(frame: currentFrame, visibleFrame: visibleFrame)
-            let clamped = result.frame
+            let (clamped, squeezeDelta) = self.applyClamp(
+                element: activeWindow.element, windowID: activeWindow.id,
+                frame: currentFrame, visibleFrame: visibleFrame,
+                existingSqueezeDelta: group.tabBarSqueezeDelta
+            )
             guard clamped != group.frame else { return }
 
-            if clamped != currentFrame {
-                self.setExpectedFrame(clamped, for: [activeWindow.id])
-                AccessibilityHelper.setFrame(of: activeWindow.element, to: clamped)
-            }
             group.frame = clamped
-            group.tabBarSqueezeDelta = result.squeezeDelta
+            group.tabBarSqueezeDelta = squeezeDelta
             let others = group.windows.filter { $0.id != activeWindow.id }
             self.setExpectedFrame(clamped, for: others.map(\.id))
             for window in others {
