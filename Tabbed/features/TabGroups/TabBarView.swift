@@ -1,10 +1,5 @@
 import SwiftUI
 
-private struct TabBarFrameKey: PreferenceKey {
-    static var defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
-}
-
 struct TabBarView: View {
     @ObservedObject var group: TabGroup
     var onSwitchTab: (Int) -> Void
@@ -26,7 +21,8 @@ struct TabBarView: View {
     @State private var lastClickedIndex: Int? = nil
     /// IDs being dragged (either the multi-selection or just the single dragged tab)
     @State private var draggingIDs: Set<CGWindowID> = []
-    @State private var tabBarFrame: CGRect = .zero
+    /// Set true during drag if the cursor moves far enough vertically to detach
+    @State private var draggedOffBar = false
 
     var body: some View {
         GeometryReader { geo in
@@ -54,7 +50,7 @@ struct TabBarView: View {
                         )
                         .animation(isDragging ? nil : .easeInOut(duration: 0.15), value: targetIndex)
                         .gesture(
-                            DragGesture(minimumDistance: 5, coordinateSpace: .global)
+                            DragGesture(minimumDistance: 5)
                                 .onChanged { value in
                                     if draggingID == nil {
                                         draggingID = window.id
@@ -67,10 +63,15 @@ struct TabBarView: View {
                                         }
                                     }
                                     dragTranslation = value.translation.width
+                                    // Track if cursor has left the tab bar vertically.
+                                    // Latch true so even if the gesture stops tracking
+                                    // outside the panel, we still detach on end.
+                                    if abs(value.translation.height) > 15 {
+                                        draggedOffBar = true
+                                    }
                                 }
-                                .onEnded { value in
-                                    let endedOutsideBar = !tabBarFrame.contains(value.location)
-                                    if endedOutsideBar {
+                                .onEnded { _ in
+                                    if draggedOffBar {
                                         handleDragDetach()
                                     } else {
                                         handleDragEnded(tabStep: tabStep)
@@ -84,10 +85,6 @@ struct TabBarView: View {
             .padding(.vertical, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay(GeometryReader { proxy in
-            Color.clear.preference(key: TabBarFrameKey.self, value: proxy.frame(in: .global))
-        })
-        .onPreferenceChange(TabBarFrameKey.self) { tabBarFrame = $0 }
         .onChange(of: group.windows.count) { _ in
             // Clear stale selection when windows are externally added/removed
             let validIDs = Set(group.windows.map(\.id))
@@ -203,6 +200,7 @@ struct TabBarView: View {
         dragTranslation = 0
         draggingID = nil
         draggingIDs = []
+        draggedOffBar = false
     }
 
     // MARK: - Tab Item
