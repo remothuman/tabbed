@@ -99,8 +99,10 @@ extension AppDelegate {
             if let group = cyclingGroup {
                 group.endCycle()
                 cyclingGroup = nil
-                cycleEndTime = Date()
             }
+            // Always set cooldown after any switcher commit — suppresses
+            // async focus notifications from our own raiseWindow/activate.
+            cycleEndTime = Date()
             return
         }
         guard let group = cyclingGroup, group.isCycling else { return }

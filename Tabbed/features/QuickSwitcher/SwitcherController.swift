@@ -63,7 +63,10 @@ class SwitcherController {
         guard case .group(let group) = items[selectedIndex], group.windows.count > 1 else { return }
 
         let indices = mruWindowIndices(for: group)
-        let currentPos = indices.firstIndex(of: subSelectedWindowIndex ?? group.activeIndex) ?? 0
+        // Start from the existing sub-selection, or MRU position 0 (the visual
+        // head) if this is the first press — NOT group.activeIndex, which may
+        // differ from what's displayed.
+        let currentPos = subSelectedWindowIndex.flatMap { indices.firstIndex(of: $0) } ?? 0
         subSelectedWindowIndex = indices[(currentPos + 1) % indices.count]
         updatePanelContent()
     }
@@ -94,7 +97,7 @@ class SwitcherController {
         guard case .group(let group) = items[selectedIndex], group.windows.count > 1 else { return }
 
         let indices = mruWindowIndices(for: group)
-        let currentPos = indices.firstIndex(of: subSelectedWindowIndex ?? group.activeIndex) ?? 0
+        let currentPos = subSelectedWindowIndex.flatMap { indices.firstIndex(of: $0) } ?? 0
         subSelectedWindowIndex = indices[(currentPos - 1 + indices.count) % indices.count]
         updatePanelContent()
     }

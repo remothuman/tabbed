@@ -188,6 +188,12 @@ enum AccessibilityHelper {
             }
         }
 
+        // Re-raise after activate: app.activate() can bring forward the app's
+        // own previously-focused window, overriding our initial raise. This
+        // matters for same-app multi-window groups.
+        let elementToRaise = freshElement ?? window.element
+        raise(elementToRaise)
+
         if let fresh = freshElement, fresh !== window.element {
             return fresh
         }

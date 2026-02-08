@@ -114,15 +114,22 @@ extension AppDelegate {
               let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id] else { return }
 
-        let previousID = group.activeWindow?.id
-        if previousID != windowID {
-            Logger.log("[DEBUG] handleWindowFocused: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (pid=\(pid))")
+        // During an active switcher session or post-commit cooldown,
+        // don't let OS focus events mutate group state — the switcher
+        // owns the selection, and post-commit events are echoes of our
+        // own raiseWindow/activate calls.
+        if !switcherController.isActive, !isCycleCooldownActive {
+            let previousID = group.activeWindow?.id
+            if previousID != windowID {
+                Logger.log("[DEBUG] handleWindowFocused: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (pid=\(pid))")
+            }
+            group.switchTo(windowID: windowID)
+            lastActiveGroupID = group.id
+            if !group.isCycling {
+                group.recordFocus(windowID: windowID)
+            }
         }
-        group.switchTo(windowID: windowID)
-        lastActiveGroupID = group.id
-        if !group.isCycling, !isCycleCooldownActive {
-            group.recordFocus(windowID: windowID)
-        }
+
         movePanelToWindowSpace(panel, windowID: windowID)
         panel.orderAbove(windowID: windowID)
         // Re-order after a delay — when the OS raises a window (dock click, Cmd-Tab,
@@ -186,8 +193,10 @@ extension AppDelegate {
         let windowElement = focusedRef as! AXUIElement // swiftlint:disable:this force_cast
         guard let windowID = AccessibilityHelper.windowID(for: windowElement) else { return }
 
-        // Record entity-level MRU (skip during active switcher sessions)
-        if !switcherController.isActive {
+        let suppressGroupState = switcherController.isActive || isCycleCooldownActive
+
+        // Record entity-level MRU (skip during active switcher sessions and cooldown)
+        if !suppressGroupState {
             if let group = groupManager.group(for: windowID) {
                 recordGlobalActivation(.group(group.id))
             } else {
@@ -199,15 +208,18 @@ extension AppDelegate {
         guard let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id] else { return }
 
-        let previousID = group.activeWindow?.id
-        if previousID != windowID {
-            Logger.log("[DEBUG] handleAppActivated: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (app=\(app.localizedName ?? "?"), pid=\(pid))")
+        if !suppressGroupState {
+            let previousID = group.activeWindow?.id
+            if previousID != windowID {
+                Logger.log("[DEBUG] handleAppActivated: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (app=\(app.localizedName ?? "?"), pid=\(pid))")
+            }
+            group.switchTo(windowID: windowID)
+            lastActiveGroupID = group.id
+            if !group.isCycling {
+                group.recordFocus(windowID: windowID)
+            }
         }
-        group.switchTo(windowID: windowID)
-        lastActiveGroupID = group.id
-        if !group.isCycling, !isCycleCooldownActive {
-            group.recordFocus(windowID: windowID)
-        }
+
         movePanelToWindowSpace(panel, windowID: windowID)
         panel.orderAbove(windowID: windowID)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak panel] in
