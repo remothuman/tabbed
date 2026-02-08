@@ -102,14 +102,6 @@ extension AppDelegate {
             self?.removeAutoCaptureObserver(for: app.processIdentifier)
         }
 
-        let spaceToken = NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.activeSpaceDidChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.evaluateAutoCapture()
-        }
-
         let screenToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,
@@ -118,7 +110,7 @@ extension AppDelegate {
             self?.evaluateAutoCapture()
         }
 
-        autoCaptureNotificationTokens = [launchToken, terminateToken, spaceToken]
+        autoCaptureNotificationTokens = [launchToken, terminateToken]
         autoCaptureDefaultCenterTokens = [screenToken]
 
         Logger.log("[AutoCapture] Activated for group \(group.id) on \(screen.localizedName), observing \(autoCaptureObservers.count) PIDs")
@@ -126,6 +118,21 @@ extension AppDelegate {
 
     func deactivateAutoCapture() {
         guard autoCaptureGroup != nil else { return }
+
+        // Clean up pending window watchers before removing observers
+        for (element, pid) in pendingAutoCaptureWindows {
+            if let observer = autoCaptureObservers[pid] {
+                AccessibilityHelper.removeNotification(
+                    observer: observer, element: element,
+                    notification: kAXMovedNotification as String
+                )
+                AccessibilityHelper.removeNotification(
+                    observer: observer, element: element,
+                    notification: kAXResizedNotification as String
+                )
+            }
+        }
+        pendingAutoCaptureWindows.removeAll()
 
         for (pid, observer) in autoCaptureObservers {
             if let appElement = autoCaptureAppElements[pid] {
@@ -172,6 +179,9 @@ extension AppDelegate {
                 delegate.handleWindowCreated(element: element, pid: pid)
             } else if notifString == kAXFocusedWindowChangedNotification as String {
                 delegate.handleAutoCaptureFocusChanged(element: element, pid: pid)
+            } else if notifString == kAXMovedNotification as String
+                        || notifString == kAXResizedNotification as String {
+                delegate.handlePendingWindowChanged(element: element, pid: pid)
             }
         }
 
@@ -196,6 +206,7 @@ extension AppDelegate {
 
     func removeAutoCaptureObserver(for pid: pid_t) {
         guard let observer = autoCaptureObservers.removeValue(forKey: pid) else { return }
+        pendingAutoCaptureWindows.removeAll { $0.pid == pid }
         if let appElement = autoCaptureAppElements.removeValue(forKey: pid) {
             AccessibilityHelper.removeNotification(
                 observer: observer,
@@ -216,14 +227,12 @@ extension AppDelegate {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self, self.autoCaptureGroup != nil else { return }
-            if WindowDiscovery.buildWindowInfo(element: element, pid: pid) != nil {
-                self.captureWindowIfEligible(element: element, pid: pid, source: "created")
-            } else {
-                Logger.log("[AutoCapture] Window not in CG list yet for pid \(pid), will retry")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                    self?.captureWindowIfEligible(element: element, pid: pid, source: "created-retry")
-                }
+            if self.captureWindowIfEligible(element: element, pid: pid, source: "created") {
+                return
             }
+            // Window not ready yet (still being dragged, animating, etc.)
+            // Watch for resize/move events to retry when the window settles.
+            self.watchPendingWindow(element: element, pid: pid)
         }
     }
 
@@ -245,39 +254,84 @@ extension AppDelegate {
         captureWindowIfEligible(element: windowElement, pid: pid, source: "focus")
     }
 
-    func captureWindowIfEligible(element: AXUIElement, pid: pid_t, source: String) {
+    // MARK: - Pending Window Watchers
+
+    /// Register per-window move/resize watchers for windows that weren't immediately
+    /// capturable (e.g. browser tab drag-outs that are still mid-drag when created).
+    func watchPendingWindow(element: AXUIElement, pid: pid_t) {
+        guard let observer = autoCaptureObservers[pid] else { return }
+        if pendingAutoCaptureWindows.contains(where: { $0.element === element }) { return }
+
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        AccessibilityHelper.addNotification(
+            observer: observer, element: element,
+            notification: kAXMovedNotification as String, context: context
+        )
+        AccessibilityHelper.addNotification(
+            observer: observer, element: element,
+            notification: kAXResizedNotification as String, context: context
+        )
+        pendingAutoCaptureWindows.append((element: element, pid: pid))
+        Logger.log("[AutoCapture] Watching pending window for pid \(pid)")
+    }
+
+    func handlePendingWindowChanged(element: AXUIElement, pid: pid_t) {
+        guard autoCaptureGroup != nil else { return }
+        if captureWindowIfEligible(element: element, pid: pid, source: "pending") {
+            removePendingWindowWatch(element: element, pid: pid)
+        }
+    }
+
+    func removePendingWindowWatch(element: AXUIElement, pid: pid_t) {
+        guard let observer = autoCaptureObservers[pid] else { return }
+        AccessibilityHelper.removeNotification(
+            observer: observer, element: element,
+            notification: kAXMovedNotification as String
+        )
+        AccessibilityHelper.removeNotification(
+            observer: observer, element: element,
+            notification: kAXResizedNotification as String
+        )
+        pendingAutoCaptureWindows.removeAll { $0.element === element }
+    }
+
+    // MARK: - Capture
+
+    @discardableResult
+    func captureWindowIfEligible(element: AXUIElement, pid: pid_t, source: String) -> Bool {
         guard let group = autoCaptureGroup,
               let screen = autoCaptureScreen else {
             Logger.log("[AutoCapture] captureIfEligible[\(source)]: no active group/screen")
-            return
+            return false
         }
 
         guard let window = WindowDiscovery.buildWindowInfo(element: element, pid: pid) else {
             Logger.log("[AutoCapture] captureIfEligible[\(source)]: buildWindowInfo failed for pid \(pid)")
-            return
+            return false
         }
 
-        guard !groupManager.isWindowGrouped(window.id) else { return }
+        guard !groupManager.isWindowGrouped(window.id) else { return false }
 
         if let size = AccessibilityHelper.getSize(of: element),
            size.width < 200 || size.height < 150 {
             Logger.log("[AutoCapture] captureIfEligible[\(source)]: too small \(size) — \(window.appName): \(window.title)")
-            return
+            return false
         }
 
         guard let frame = AccessibilityHelper.getFrame(of: element) else {
             Logger.log("[AutoCapture] captureIfEligible[\(source)]: no frame — \(window.appName): \(window.title)")
-            return
+            return false
         }
         let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
         guard visibleFrame.intersects(frame) else {
             Logger.log("[AutoCapture] captureIfEligible[\(source)]: not on screen — \(window.appName): \(window.title) frame=\(frame) visible=\(visibleFrame)")
-            return
+            return false
         }
 
         Logger.log("[AutoCapture] Capturing window \(window.id) (\(window.appName): \(window.title)) [\(source)]")
         setExpectedFrame(group.frame, for: [window.id])
         addWindow(window, to: group)
         evaluateAutoCapture()
+        return true
     }
 }

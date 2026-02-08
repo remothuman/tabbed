@@ -24,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var autoCaptureAppElements: [pid_t: AXUIElement] = [:]
     var autoCaptureNotificationTokens: [NSObjectProtocol] = []
     var autoCaptureDefaultCenterTokens: [NSObjectProtocol] = []
+    var pendingAutoCaptureWindows: [(element: AXUIElement, pid: pid_t)] = []
     var sessionConfig = SessionConfig.load()
     var switcherController = SwitcherController()
     var switcherConfig = SwitcherConfig.load()
@@ -95,6 +96,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             name: NSWorkspace.didActivateApplicationNotification,
             object: nil
         )
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.evaluateAutoCapture()
+        }
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
