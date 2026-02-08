@@ -63,7 +63,13 @@ extension AppDelegate {
         let windowFrame = clampFrameForTabBar(firstFrame)
         let squeezeDelta = windowFrame.origin.y - firstFrame.origin.y
 
-        setupGroup(with: windows, frame: windowFrame, squeezeDelta: squeezeDelta)
+        guard let group = setupGroup(with: windows, frame: windowFrame, squeezeDelta: squeezeDelta) else { return }
+        if let activeWindow = group.activeWindow {
+            raiseAndUpdate(activeWindow, in: group)
+            if let panel = tabBarPanels[group.id] {
+                panel.orderAbove(windowID: activeWindow.id)
+            }
+        }
     }
 
     @discardableResult
@@ -107,9 +113,6 @@ extension AppDelegate {
 
         if let activeWindow = group.activeWindow {
             panel.show(above: frame, windowID: activeWindow.id)
-            if isOnCurrentSpace(activeWindow.id) {
-                raiseAndUpdate(activeWindow, in: group)
-            }
             panel.orderAbove(windowID: activeWindow.id)
             movePanelToWindowSpace(panel, windowID: activeWindow.id)
         }
@@ -152,13 +155,6 @@ extension AppDelegate {
                 group.windows[idx].element = freshElement
             }
         }
-    }
-
-    private func isOnCurrentSpace(_ windowID: CGWindowID) -> Bool {
-        let onScreen = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-        ) as? [[String: Any]] ?? []
-        return onScreen.contains { ($0[kCGWindowNumber as String] as? CGWindowID) == windowID }
     }
 
     /// Move the tab bar panel to the same Space as the given window, if they differ.
