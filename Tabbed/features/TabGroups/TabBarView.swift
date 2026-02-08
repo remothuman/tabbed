@@ -51,6 +51,9 @@ struct TabBarView: View {
     /// Set true during drag if the cursor moves far enough vertically to detach
     @State private var draggedOffBar = false
     @State private var currentDropTarget: CrossPanelDropTarget? = nil
+    /// Post-drag snap-to-grid: residual offset animated to 0 after instant reorder
+    @State private var snapIDs: Set<CGWindowID> = []
+    @State private var snapOffset: CGFloat = 0
     @State private var tabLeadingXs: [CGWindowID: CGFloat] = [:]
 
     var body: some View {
@@ -86,6 +89,7 @@ struct TabBarView: View {
                             .offset(x: isDragging
                                 ? dragTranslation
                                 : shiftOffset(for: index, targetIndex: targetIndex, tabStep: tabStep))
+                            .offset(x: snapIDs.contains(window.id) ? snapOffset : 0)
                             .zIndex(isDragging ? 1 : 0)
                             .scaleEffect(isDragging ? 1.03 : 1.0, anchor: .center)
                             .shadow(
@@ -101,6 +105,8 @@ struct TabBarView: View {
                                         if draggingID == nil {
                                             draggingID = window.id
                                             dragStartIndex = index
+                                            snapIDs = []
+                                            snapOffset = 0
                                             if selectedIDs.contains(window.id) {
                                                 draggingIDs = selectedIDs
                                             } else {
@@ -282,20 +288,37 @@ struct TabBarView: View {
         guard draggingID != nil else { return }
 
         let target = computeTargetIndex(tabStep: tabStep) ?? dragStartIndex
+        let exactTranslation = CGFloat(target - dragStartIndex) * tabStep
+        let residual = dragTranslation - exactTranslation
+        let ids = draggingIDs
+        let isMulti = draggingIDs.count > 1
 
-        // Use the same .easeOut curve as the .animation modifier on offset
-        // so the HStack reorder and offset reset cancel perfectly mid-flight.
-        withAnimation(.easeOut(duration: 0.15)) {
-            if draggingIDs.count > 1 {
-                group.moveTabs(withIDs: draggingIDs, toIndex: target)
-                resetDragState()
-                selectedIDs = []
+        // Phase 1: commit reorder + reset instantly (no animation).
+        // Set snapOffset to the residual so the dragged tab stays at its
+        // current visual position despite the instant HStack reorder.
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) {
+            if isMulti {
+                group.moveTabs(withIDs: ids, toIndex: target)
             } else {
                 let sourceIndex = group.windows.firstIndex(where: { $0.id == draggingID! })
                 if let sourceIndex, sourceIndex != target {
                     group.moveTab(from: sourceIndex, to: Self.insertionIndex(from: sourceIndex, to: target))
                 }
-                resetDragState()
+            }
+            resetDragState()
+            if isMulti { selectedIDs = [] }
+            snapIDs = ids
+            snapOffset = residual
+        }
+
+        // Phase 2: animate the residual to 0 in the next frame.
+        // Only snapOffset changes — no ForEach reorder, no competing animations.
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.12)) {
+                snapOffset = 0
+                snapIDs = []
             }
         }
     }
@@ -377,7 +400,6 @@ struct TabBarView: View {
                 }
             }
         }
-        .transaction { $0.animation = nil }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .frame(maxWidth: compactWidth ?? .infinity, alignment: .leading)
