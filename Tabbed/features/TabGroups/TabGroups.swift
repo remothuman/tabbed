@@ -282,6 +282,12 @@ extension AppDelegate {
     }
 
     func addWindow(_ window: WindowInfo, to group: TabGroup) {
+        if group.spaceID != 0,
+           let windowSpace = SpaceUtils.spaceID(for: window.id),
+           windowSpace != group.spaceID {
+            Logger.log("[SPACE] Rejected addWindow wid=\(window.id) (space \(windowSpace)) to group \(group.id) (space \(group.spaceID))")
+            return
+        }
         globalMRU.removeAll { $0 == .window(window.id) }
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
