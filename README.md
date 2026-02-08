@@ -1,47 +1,27 @@
-# Tabbed
+## What is Tabbed
 
-A macOS menu bar utility that groups arbitrary windows into tab groups with a browser-style tab bar.
+Tabbed is a native macOS menu bar utility that groups arbitrary application windows into tab groups with browser-style floating tab bars. Built with Swift 5.9, targeting macOS 13.0+. Uses Accessibility APIs and private CoreGraphics SPIs for window management.
 
-## Requirements
+## Build & Test
 
-- macOS 13.0+
-- Xcode Command Line Tools
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+- **Build:** `scripts/build.sh` (runs xcodegen + xcodebuild, silent on success)
+- **Test:** `scripts/test.sh` (runs unit tests, silent on success)
 
-## Setup
+The project uses **XcodeGen** (`project.yml` is the source of truth, `.xcodeproj` is gitignored). Scripts load `DEVELOPMENT_TEAM` from `.env` (gitignored, copy from `.env.example`). Code signing with Apple Development certificate is required for TCC accessibility permission persistence across rebuilds.
 
-Install XcodeGen if you don't have it:
 
-```
-brew install xcodegen
-```
+## Architecture
 
-Generate the Xcode project and build:
+### Layers
 
-```
-xcodegen generate
-xcodebuild -project Tabbed.xcodeproj -scheme Tabbed -derivedDataPath build build
-```
+**AppDelegate** is the central orchestrator — owns all managers, wires up event callbacks, coordinates between layers. It's extended across multiple files (`TabGroups.swift`, `WindowEventHandlers.swift`, `QuickSwitcher.swift`, `AutoCapture.swift`, `NotificationSuppression.swift`, `TabCycling.swift`).
 
-Run:
+**Platform layer** (`Tabbed/Platform/`) — low-level macOS API wrappers, all implemented as enum namespaces (stateless)
 
-```
-open build/Build/Products/Debug/Tabbed.app
-```
-
-The app requires Accessibility permission. Grant it in System Settings > Privacy & Security > Accessibility when prompted.
-
-## Development
-
-The Xcode project is generated from `project.yml` — don't edit `Tabbed.xcodeproj` directly. After changing `project.yml` or adding/removing source files, regenerate:
-
-```
-xcodegen generate
-```
-
-Run tests:
-
-```
-xcodegen generate
-xcodebuild -project Tabbed.xcodeproj -scheme TabbedTests -derivedDataPath build test
-```
+**Features** (`Tabbed/features/`):
+- `TabGroups/` — core tab grouping: models (`WindowInfo`, `TabGroup`), managers (`GroupManager`, `WindowManager`, `WindowObserver`), views (`TabBarPanel`, `TabBarView`, `WindowPickerView`)
+- `QuickSwitcher/` — alt-tab style switcher UI (global cross-app and within-group cycling)
+- `SessionRestore/` — persist/restore tab groups across app launches
+- `AutoCapture/` — auto-add new windows to a group when it fills the screen
+- `Settings/` — settings UI
+- `MenuBar/` — status bar menu

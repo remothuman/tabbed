@@ -17,11 +17,11 @@ BUGS:
     
     - switching to a tab of a window briefly flashes that apps last used window before correctly showing the tab you clicked (probably activating that app before switching to it or something, but we get 1 frame of the wrong screen)
     
-    - fullscreen restoration on app quit is 2px too short
+    - fullscreen restoration on app quit is 2px too short - sometimes. now its stopped
     
     - session restore is having wrong tab ordering, shows wrong tab as active
 
-
+- option for quick switcher keys to overwrite command tab and command ` (by windowgroup > by app)
 
 - option to make tabs have max width, and left aligned instead of justified
 
@@ -48,7 +48,18 @@ Meta Dev:
     - create a build script that outputs nothing on sucessfull build to help avoid unesessary context stuff
     - set up vscode swift lsp
     - claude swift extension reduce the false positives
+    
+    - code cleanliness:
+        - set up proper log system so claude doesnt either guess at bug or ask me to log as often
+        - make sure tests are everywhere. i think its only writing tests when using superpowers implement skill. could copy that in general into claude.md or just ask it to test after the fact...
 
+- feature: spotlight launcher
+    - in addition to adding apps from the current space in a list
+    - have a windows search / spotlite (everyones favorite features) like launcher
+    which just searches your apps and launches an app window then captures it
+    - in the future though it might search the web iswtg and make a browser webview type tab, and we will truly unify desktop and web apps into one control system muahahaha (will be disablable)
+        - maybe just open it in helium (compact tabs and tabs and url in line),
+        then to open new tab in new window user can drag out, otherwise it will be like double tabs. need to find way to make new helium window and navigate in it. good to allow any browser of users choice
 
 Maybe:
 - might be too complex
@@ -58,7 +69,8 @@ Maybe:
         - should windows still stay together? probably not actually
         - add a window with hyper t, then use alttab clone stuff to navigate in groups
         - question: could this have all been desktop based, just have a seperate keybind for navigating within desktop (alttab already does this)
-            - maybe the answer is yes and so we dont need to support this
+           - altab does not show desktops as a group though tbf
+        - could also alternatively have a "hide tab bar on maximized option"
 
 ----- More ------
 
