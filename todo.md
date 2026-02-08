@@ -1,12 +1,24 @@
-TODO: hyper ` icon display should show target (most recently active) app on top, (order icons by hyper tab order), hyper tab (or correct arrow keys) switches within it change the order, dont just display one app but change the front showing app
+## Next:
+- shift select multiple tabs plus right click menu (disband, make own window, quit windows)
+    - then, drag out to turn into new window
+    - investigate if we can drag ff/chrome tabs to us
+
+- maybe: name windows for displation in quick switcher~
+
+- promote worktree branch to main
+
+- make horizontal switcher bigger
+    + maximum window title length (can be generous)
+
+- fullscreen to unfullscreen restoration
 
 
-
-
+---------------------
 - maybe: make height 24 instead of 28 to match menu bar on my m1 mac air (remove from padding)
     - prompt: make the tab bar height 24 instead of 28: change tabBarHeight in TabBarPanel.swift to 24, change tab item .padding(.vertical, 4) to .padding(.vertical, 3) in TabBarView.swift, and change the outer HStack .padding(.vertical, 2) to .padding(.top, 1) .padding(.bottom, 1)  
-
-- disbanding window from menubar shouldnt close menubar
+    
+    
+- maybe: option to always make all lone windows single tabbed windows
 
 - simplify session restore config options maybe
 
@@ -15,8 +27,6 @@ TODO: hyper ` icon display should show target (most recently active) app on top,
 hyper tab should allow you to do shift + hyper + tab to go backwards, if users keyboard already has shift, then it should work without shift. this is only listened to if we are already in hyper tab view. wait. hyper includes shift, oh no
     should hyper be like f18 or something instead?
 
-switcher:
-    - show more than 4
 
 BUGS:
     - signal app specifically (most apps dont but others might) pick up control + tab key shortcut even though im pressing hyper tab

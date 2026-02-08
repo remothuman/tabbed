@@ -14,6 +14,8 @@ Tabbed is a native macOS menu bar utility that groups arbitrary cross-app applic
 
 The project uses **XcodeGen** (`project.yml` is the source of truth, `.xcodeproj` is gitignored). Scripts load `DEVELOPMENT_TEAM` from `.env`
 
+## Logging
+log with Logger.swift, logs are written to logs/Tabbed.log
 
 ## Architecture
 
