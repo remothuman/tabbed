@@ -4,6 +4,8 @@ import AppKit
 class TabTooltipPanel: NSPanel {
     private let label: NSTextField
     private let visualEffect: NSVisualEffectView
+    private static let padding: CGFloat = 12
+    private static let tooltipHeight: CGFloat = 24
 
     init() {
         label = NSTextField(labelWithString: "")
@@ -19,7 +21,7 @@ class TabTooltipPanel: NSPanel {
         visualEffect.layer?.cornerRadius = 6
 
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 100, height: 24),
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: Self.tooltipHeight),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -34,6 +36,10 @@ class TabTooltipPanel: NSPanel {
         self.animationBehavior = .none
         self.collectionBehavior = [.transient, .ignoresCycle]
 
+        // Autoresizing masks so subviews follow animated window frame changes
+        visualEffect.autoresizingMask = [.width, .height]
+        label.autoresizingMask = [.width]
+
         contentView?.addSubview(visualEffect)
         visualEffect.addSubview(label)
     }
@@ -44,25 +50,24 @@ class TabTooltipPanel: NSPanel {
         label.stringValue = title
         label.sizeToFit()
 
-        let padding: CGFloat = 12
-        let height: CGFloat = 24
-        let width = min(label.frame.width + padding * 2, 400)
-
+        let width = min(label.frame.width + Self.padding * 2, 400)
         let x = tabLeadingX
-        let y = panelFrame.origin.y - height - 2
-        let newFrame = NSRect(x: x, y: y, width: width, height: height)
+        let y = panelFrame.origin.y - Self.tooltipHeight - 2
+        let newFrame = NSRect(x: x, y: y, width: width, height: Self.tooltipHeight)
 
-        if animate && isVisible {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.15
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                self.animator().setFrame(newFrame, display: true)
-            }
-        } else {
-            setFrame(newFrame, display: true)
-        }
-        visualEffect.frame = contentView!.bounds
-        label.frame = NSRect(x: padding, y: (height - label.frame.height) / 2, width: width - padding * 2, height: label.frame.height)
+        // setFrame(_:display:animate:) is AppKit's built-in window frame animation.
+        // Subviews follow automatically via autoresizing masks.
+        setFrame(newFrame, display: true, animate: animate && isVisible)
+
+        // Layout label within the (now final-sized) content view
+        let bounds = contentView!.bounds
+        visualEffect.frame = bounds
+        label.frame = NSRect(
+            x: Self.padding,
+            y: (bounds.height - label.frame.height) / 2,
+            width: bounds.width - Self.padding * 2,
+            height: label.frame.height
+        )
 
         orderFront(nil)
     }

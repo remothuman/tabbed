@@ -145,7 +145,11 @@ class TabBarPanel: NSPanel {
         tooltipTimer = nil
 
         guard let title else {
-            tooltipPanel.dismiss()
+            // Brief delay before dismiss so tooltip stays visible between tab transitions,
+            // allowing the animate path to fire when the next tab's hover-in arrives.
+            tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+                self?.tooltipPanel.dismiss()
+            }
             return
         }
 

@@ -50,6 +50,7 @@ struct TabBarView: View {
     /// Set true during drag if the cursor moves far enough vertically to detach
     @State private var draggedOffBar = false
     @State private var currentDropTarget: CrossPanelDropTarget? = nil
+    @State private var tabLeadingXs: [CGWindowID: CGFloat] = [:]
 
     var body: some View {
         GeometryReader { geo in
@@ -79,9 +80,8 @@ struct TabBarView: View {
                         let isDragging = draggingIDs.contains(window.id)
 
                         let tabWidth = isCompact ? compactTabWidth : equalTabStep
-                        let tabLeadingX = leadingPad + handleWidth + tabStep * CGFloat(index)
 
-                        tabItem(for: window, at: index, compactWidth: isCompact ? compactTabWidth : nil, tabWidth: tabWidth, tabLeadingX: tabLeadingX)
+                        tabItem(for: window, at: index, compactWidth: isCompact ? compactTabWidth : nil, tabWidth: tabWidth)
                             .offset(x: isDragging
                                 ? dragTranslation
                                 : shiftOffset(for: index, targetIndex: targetIndex, tabStep: tabStep))
@@ -154,6 +154,7 @@ struct TabBarView: View {
                         .animation(.easeInOut(duration: 0.1), value: dropIndex)
                 }
             }
+            .coordinateSpace(name: "tabBar")
             .contentShape(Rectangle())
             .contextMenu {
                 Button("Ungroup") {
@@ -329,7 +330,7 @@ struct TabBarView: View {
     }
 
     @ViewBuilder
-    private func tabItem(for window: WindowInfo, at index: Int, compactWidth: CGFloat? = nil, tabWidth: CGFloat = 0, tabLeadingX: CGFloat = 0) -> some View {
+    private func tabItem(for window: WindowInfo, at index: Int, compactWidth: CGFloat? = nil, tabWidth: CGFloat = 0) -> some View {
         let isActive = index == group.activeIndex
         let isHovered = hoveredWindowID == window.id && draggingID == nil
         let isSelected = selectedIDs.contains(window.id)
@@ -363,16 +364,25 @@ struct TabBarView: View {
                     })
             }
         }
+        .transaction { $0.animation = nil }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .frame(maxWidth: compactWidth ?? .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected
-                    ? Color.accentColor.opacity(0.15)
-                    : isActive
-                        ? Color.primary.opacity(0.1)
-                        : Color.clear)
+            GeometryReader { tabGeo in
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected
+                        ? Color.accentColor.opacity(0.15)
+                        : isActive
+                            ? Color.primary.opacity(0.1)
+                            : Color.clear)
+                    .onAppear {
+                        tabLeadingXs[window.id] = tabGeo.frame(in: .named("tabBar")).minX
+                    }
+                    .onChange(of: tabGeo.frame(in: .named("tabBar")).minX) { newX in
+                        tabLeadingXs[window.id] = newX
+                    }
+            }
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -383,7 +393,7 @@ struct TabBarView: View {
             if tabBarConfig.showTooltip {
                 let title = window.title.isEmpty ? window.appName : window.title
                 if hovering && Self.isTitleTruncated(title: title, tabWidth: tabWidth) {
-                    onTooltipHover?(title, tabLeadingX)
+                    onTooltipHover?(title, tabLeadingXs[window.id] ?? 0)
                 } else {
                     onTooltipHover?(nil, 0)
                 }
