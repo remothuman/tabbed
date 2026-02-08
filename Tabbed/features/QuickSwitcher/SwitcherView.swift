@@ -193,16 +193,16 @@ struct SwitcherView: View {
             if item.isGroup {
                 let frontIndex = isSelected ? subSelectedWindowIndex : nil
                 let icons = item.iconsInMRUOrder(frontIndex: frontIndex, maxVisible: Self.maxGroupIcons)
-                let stackWidth = CGFloat(20 + max(0, icons.count - 1) * 8)
+                let stackWidth = CGFloat(22 + max(0, icons.count - 1) * 9)
                 groupedIconRowStack(icons: icons)
-                    .frame(width: max(32, stackWidth), height: 24)
+                    .frame(width: max(36, stackWidth), height: 28)
             } else if let icon = item.icons.first ?? nil {
                 Image(nsImage: icon)
                     .resizable()
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
             } else {
                 Image(systemName: "macwindow")
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
             }
 
             Text("\(appName) — \(title)")
@@ -245,8 +245,8 @@ struct SwitcherView: View {
     /// Small overlapping icons for the titles-style row.
     private func groupedIconRowStack(icons: [NSImage?]) -> some View {
         let count = icons.count
-        let iconSize: CGFloat = 20
-        let overlap: CGFloat = 8
+        let iconSize: CGFloat = 22
+        let overlap: CGFloat = 9
 
         return ZStack {
             ForEach(Array(icons.enumerated()), id: \.offset) { index, icon in
