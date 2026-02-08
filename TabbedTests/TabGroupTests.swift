@@ -274,4 +274,20 @@ final class TabGroupTests: XCTestCase {
         group.windows[1].isFullscreened = true
         XCTAssertEqual(group.visibleWindows.map(\.id), [1, 3])
     }
+
+    func testMRUCycleSkipsFullscreenedWindows() {
+        let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3)], frame: .zero)
+        group.recordFocus(windowID: 1)
+        group.recordFocus(windowID: 2)
+        group.recordFocus(windowID: 3)
+        // Fullscreen window 2
+        group.windows[1].isFullscreened = true
+        // Cycle: should skip window 2
+        let next1 = group.nextInMRUCycle()
+        XCTAssertNotNil(next1)
+        // The returned index should not point to window 2
+        if let idx = next1 {
+            XCTAssertNotEqual(group.windows[idx].id, 2)
+        }
+    }
 }
