@@ -212,15 +212,25 @@ extension AppDelegate {
         windowObserver.handleDestroyedWindow(pid: window.ownerPID, elementHash: CFHash(window.element))
 
         if AccessibilityHelper.windowExists(id: windowID) {
+            // AXUIElement was destroyed but the window is still on-screen.
+            // This can happen when apps recreate their AX hierarchy (e.g. web
+            // browsers during navigation). Try to re-acquire a fresh element.
             let newElements = AccessibilityHelper.windowElements(for: window.ownerPID)
             if let newElement = newElements.first(where: { AccessibilityHelper.windowID(for: $0) == windowID }),
                let index = group.windows.firstIndex(where: { $0.id == windowID }) {
                 group.windows[index].element = newElement
                 windowObserver.observe(window: group.windows[index])
+                return
             }
-            return
+            // Window is in CGWindowList but has no AX element — likely the
+            // macOS close animation is still running. Fall through to remove.
+            Logger.log("[DEBUG] handleWindowDestroyed: windowID=\(windowID) on-screen but no AX element, removing")
         }
 
+        removeDestroyedWindow(windowID, from: group, panel: panel)
+    }
+
+    private func removeDestroyedWindow(_ windowID: CGWindowID, from group: TabGroup, panel: TabBarPanel) {
         expectedFrames.removeValue(forKey: windowID)
         groupManager.releaseWindow(withID: windowID, from: group)
 
