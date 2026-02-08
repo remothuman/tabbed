@@ -121,8 +121,14 @@ struct MenuBarView: View {
         }
         .padding(6)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.primary.opacity(0.05))
+            Button {
+                let window = group.windows[group.activeIndex]
+                onFocusWindow(window)
+            } label: {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.primary.opacity(0.05))
+            }
+            .buttonStyle(.plain)
         )
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
