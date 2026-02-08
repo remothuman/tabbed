@@ -60,8 +60,10 @@ extension AppDelegate {
         guard let first = windows.first,
               let firstFrame = AccessibilityHelper.getFrame(of: first.element) else { return }
 
-        let windowFrame = clampFrameForTabBar(firstFrame)
-        let squeezeDelta = windowFrame.origin.y - firstFrame.origin.y
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: firstFrame.origin)
+        let result = ScreenCompensation.clampResult(frame: firstFrame, visibleFrame: visibleFrame)
+        let windowFrame = result.frame
+        let squeezeDelta = result.squeezeDelta
 
         guard let group = setupGroup(with: windows, frame: windowFrame, squeezeDelta: squeezeDelta) else { return }
         if let activeWindow = group.activeWindow {

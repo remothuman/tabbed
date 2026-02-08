@@ -22,8 +22,10 @@ extension AppDelegate {
             for w in matchedWindows { claimed.insert(w.id) }
 
             let savedFrame = snapshot.frame.cgRect
-            let restoredFrame = clampFrameForTabBar(savedFrame)
-            let squeezeDelta = restoredFrame.origin.y - savedFrame.origin.y
+            let visibleFrame = CoordinateConverter.visibleFrameInAX(at: savedFrame.origin)
+            let result = ScreenCompensation.clampResult(frame: savedFrame, visibleFrame: visibleFrame)
+            let restoredFrame = result.frame
+            let squeezeDelta = result.squeezeDelta
             let effectiveSqueezeDelta = max(snapshot.tabBarSqueezeDelta, squeezeDelta)
             // Intentionally use the frontmost window (z-order) as the active tab
             // rather than the saved activeIndex. This ensures the highlighted tab

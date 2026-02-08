@@ -35,9 +35,4 @@ extension AppDelegate {
         abs(a.width - b.width) <= Self.frameTolerance &&
         abs(a.height - b.height) <= Self.frameTolerance
     }
-
-    func clampFrameForTabBar(_ frame: CGRect) -> CGRect {
-        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
-        return ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame).frame
-    }
 }
