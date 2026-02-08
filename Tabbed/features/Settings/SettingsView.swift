@@ -26,6 +26,43 @@ struct SettingsView: View {
     }
 
     var body: some View {
+        TabView {
+            generalTab
+                .tabItem { Label("General", systemImage: "gear") }
+            switcherTab
+                .tabItem { Label("Switcher", systemImage: "rectangle.grid.1x2") }
+        }
+        .frame(width: 400, height: 540)
+        .onChange(of: sessionConfig.restoreMode) { _ in
+            onSessionConfigChanged(sessionConfig)
+        }
+        .onChange(of: sessionConfig.autoCaptureEnabled) { _ in
+            onSessionConfigChanged(sessionConfig)
+        }
+        .onChange(of: switcherConfig.globalStyle) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: switcherConfig.tabCycleStyle) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .background(ShortcutRecorderBridge(
+            isRecording: recordingAction != nil,
+            onKeyDown: { event in
+                guard let action = recordingAction else { return }
+                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
+                let binding = KeyBinding(modifiers: mods, keyCode: event.keyCode)
+                updateBinding(for: action, to: binding)
+                recordingAction = nil
+            },
+            onEscape: {
+                recordingAction = nil
+            }
+        ))
+    }
+
+    // MARK: - General Tab
+
+    private var generalTab: some View {
         VStack(spacing: 0) {
             Text("Session Restore")
                 .font(.headline)
@@ -60,28 +97,6 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-
-            Divider()
-
-            Text("Quick Switcher")
-                .font(.headline)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
-
-            Picker("Style", selection: $switcherConfig.style) {
-                Text("App Icons").tag(SwitcherStyle.appIcons)
-                Text("Titles").tag(SwitcherStyle.titles)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 12)
-
-            Text(switcherStyleDescription)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-                .padding(.bottom, 12)
 
             Divider()
 
@@ -128,29 +143,66 @@ struct SettingsView: View {
             }
             .padding(12)
         }
-        .frame(width: 400, height: 620)
-        .onChange(of: sessionConfig.restoreMode) { _ in
-            onSessionConfigChanged(sessionConfig)
+    }
+
+    // MARK: - Switcher Tab
+
+    private var switcherTab: some View {
+        VStack(spacing: 0) {
+            switcherStyleSection(
+                title: "Global Switcher",
+                description: "Switches between all windows and tab groups.",
+                selection: $switcherConfig.globalStyle
+            )
+
+            Divider()
+
+            switcherStyleSection(
+                title: "Tab Cycling",
+                description: "Cycles through tabs within the active group.",
+                selection: $switcherConfig.tabCycleStyle
+            )
+
+            Spacer()
         }
-        .onChange(of: sessionConfig.autoCaptureEnabled) { _ in
-            onSessionConfigChanged(sessionConfig)
-        }
-        .onChange(of: switcherConfig.style) { _ in
-            onSwitcherConfigChanged(switcherConfig)
-        }
-        .background(ShortcutRecorderBridge(
-            isRecording: recordingAction != nil,
-            onKeyDown: { event in
-                guard let action = recordingAction else { return }
-                let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-                let binding = KeyBinding(modifiers: mods, keyCode: event.keyCode)
-                updateBinding(for: action, to: binding)
-                recordingAction = nil
-            },
-            onEscape: {
-                recordingAction = nil
+    }
+
+    private func switcherStyleSection(title: String, description: String, selection: Binding<SwitcherStyle>) -> some View {
+        VStack(spacing: 0) {
+            Text(title)
+                .font(.headline)
+                .padding(.top, 16)
+                .padding(.bottom, 4)
+
+            Text(description)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 8)
+
+            Picker("Style", selection: selection) {
+                Text("App Icons").tag(SwitcherStyle.appIcons)
+                Text("Titles").tag(SwitcherStyle.titles)
             }
-        ))
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12)
+
+            Text(styleDescription(for: selection.wrappedValue))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
+        }
+    }
+
+    private func styleDescription(for style: SwitcherStyle) -> String {
+        switch style {
+        case .appIcons:
+            return "Large icons in a horizontal row, like macOS Cmd+Tab."
+        case .titles:
+            return "Vertical list with app name, window title, and window count."
+        }
     }
 
     private var restoreModeDescription: String {
@@ -161,15 +213,6 @@ struct SettingsView: View {
             return "Always restore groups, even if some windows are missing."
         case .off:
             return "Never auto-restore. Use the menu bar button to restore manually."
-        }
-    }
-
-    private var switcherStyleDescription: String {
-        switch switcherConfig.style {
-        case .appIcons:
-            return "Large icons in a horizontal row, like macOS Cmd+Tab."
-        case .titles:
-            return "Vertical list with app name, window title, and window count."
         }
     }
 

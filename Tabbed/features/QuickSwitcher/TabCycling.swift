@@ -48,7 +48,7 @@ extension AppDelegate {
 
         switcherController.show(
             items: items,
-            style: switcherConfig.style,
+            style: switcherConfig.tabCycleStyle,
             scope: .withinGroup
         )
         switcherController.advance()

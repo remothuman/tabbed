@@ -84,7 +84,7 @@ extension AppDelegate {
 
         switcherController.show(
             items: items,
-            style: switcherConfig.style,
+            style: switcherConfig.globalStyle,
             scope: .global
         )
         switcherController.advance()
