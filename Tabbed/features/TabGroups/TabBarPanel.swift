@@ -6,6 +6,21 @@ class TabBarPanel: NSPanel {
 
     private var visualEffectView: NSVisualEffectView!
 
+    // MARK: - Bar drag & double-click callbacks
+
+    var onBarDragged: ((_ dx: CGFloat, _ dy: CGFloat) -> Void)?
+    var onBarDragEnded: (() -> Void)?
+    var onBarDoubleClicked: (() -> Void)?
+
+    weak var group: TabGroup?
+    weak var tabBarConfig: TabBarConfig?
+
+    private var barDragStartMouse: NSPoint?
+    private var barDragStartPanelOrigin: NSPoint?
+    private var isBarDragging = false
+    /// Whether we've decided this gesture is a tab drag (not a bar drag).
+    private var isTabDrag = false
+
     init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: Self.tabBarHeight),
@@ -37,8 +52,8 @@ class TabBarPanel: NSPanel {
     }
 
     func setContent(
-        group: TabGroup,
-        tabBarConfig: TabBarConfig,
+        group groupRef: TabGroup,
+        tabBarConfig tabBarConfigRef: TabBarConfig,
         onSwitchTab: @escaping (Int) -> Void,
         onReleaseTab: @escaping (Int) -> Void,
         onCloseTab: @escaping (Int) -> Void,
@@ -50,9 +65,12 @@ class TabBarPanel: NSPanel {
         onDragOverPanels: @escaping (NSPoint) -> CrossPanelDropTarget?,
         onDragEnded: @escaping () -> Void
     ) {
+        self.group = groupRef
+        self.tabBarConfig = tabBarConfigRef
+
         let tabBarView = TabBarView(
-            group: group,
-            tabBarConfig: tabBarConfig,
+            group: groupRef,
+            tabBarConfig: tabBarConfigRef,
             onSwitchTab: onSwitchTab,
             onReleaseTab: onReleaseTab,
             onCloseTab: onCloseTab,
@@ -105,5 +123,133 @@ class TabBarPanel: NSPanel {
         positionAbove(windowFrame: windowFrame)
         orderFront(nil)
         orderAbove(windowID: windowID)
+    }
+
+    // MARK: - Mouse Event Handling
+
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown:
+            if event.clickCount == 2 {
+                onBarDoubleClicked?()
+                return
+            }
+            barDragStartMouse = NSEvent.mouseLocation
+            barDragStartPanelOrigin = self.frame.origin
+            isBarDragging = false
+            isTabDrag = false
+            super.sendEvent(event)
+
+        case .leftMouseDragged:
+            guard let startMouse = barDragStartMouse,
+                  let startOrigin = barDragStartPanelOrigin else {
+                super.sendEvent(event)
+                return
+            }
+
+            // Already decided this is a tab drag — let SwiftUI handle it
+            if isTabDrag {
+                super.sendEvent(event)
+                return
+            }
+
+            let current = NSEvent.mouseLocation
+            let totalDx = current.x - startMouse.x
+            let totalDy = current.y - startMouse.y
+
+            // Already bar-dragging — move panel and notify
+            if isBarDragging {
+                var f = self.frame
+                f.origin.x = startOrigin.x + totalDx
+                f.origin.y = startOrigin.y + totalDy
+                self.setFrame(f, display: true)
+                onBarDragged?(totalDx, totalDy)
+                return
+            }
+
+            // Haven't decided yet — check distance threshold
+            let dist = hypot(totalDx, totalDy)
+            guard dist > 3 else {
+                super.sendEvent(event)
+                return
+            }
+
+            // Decide: did the mouseDown land on background or on a tab?
+            let localPoint = event.locationInWindow
+            if isOnBackground(localPoint) {
+                isBarDragging = true
+                var f = self.frame
+                f.origin.x = startOrigin.x + totalDx
+                f.origin.y = startOrigin.y + totalDy
+                self.setFrame(f, display: true)
+                onBarDragged?(totalDx, totalDy)
+            } else {
+                isTabDrag = true
+                super.sendEvent(event)
+            }
+
+        case .leftMouseUp:
+            if isBarDragging {
+                onBarDragEnded?()
+            }
+            barDragStartMouse = nil
+            barDragStartPanelOrigin = nil
+            isBarDragging = false
+            isTabDrag = false
+            super.sendEvent(event)
+
+        default:
+            super.sendEvent(event)
+        }
+    }
+
+    /// Check if a point (in window/panel coordinates) is on the bar background
+    /// rather than on a tab item. Background = padding areas and spacer in compact mode.
+    private func isOnBackground(_ point: NSPoint) -> Bool {
+        let panelWidth = frame.width
+        let panelHeight = frame.height
+        let verticalPad: CGFloat = 2
+        let horizontalPad: CGFloat = 4
+
+        // Top/bottom padding is always background
+        if point.y < verticalPad || point.y > panelHeight - verticalPad {
+            return true
+        }
+        // Left padding
+        if point.x < horizontalPad {
+            return true
+        }
+        // Right padding
+        if point.x > panelWidth - horizontalPad {
+            return true
+        }
+
+        // Calculate where tab content ends
+        let tabCount = group?.windows.count ?? 0
+        guard tabCount > 0 else { return true }
+
+        let availableWidth = panelWidth - (horizontalPad * 2) - TabBarView.addButtonWidth
+        let isCompact = tabBarConfig?.style == .compact
+
+        let tabContentWidth: CGFloat
+        if isCompact {
+            let spacing = CGFloat(max(0, tabCount - 1))
+            let compactWidth = min(
+                (availableWidth - spacing) / CGFloat(tabCount),
+                TabBarView.maxCompactTabWidth
+            )
+            tabContentWidth = CGFloat(tabCount) * compactWidth + spacing
+        } else {
+            tabContentWidth = availableWidth
+        }
+
+        let tabContentEndX = horizontalPad + tabContentWidth + TabBarView.addButtonWidth
+
+        // After tab content + add button = background
+        if point.x > tabContentEndX {
+            return true
+        }
+
+        return false
     }
 }

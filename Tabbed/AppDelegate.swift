@@ -33,6 +33,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var cycleEndTime: Date?
     static let cycleCooldownDuration: TimeInterval = 0.15
     var globalMRU: [MRUEntry] = []
+    /// Set during tab bar drag to suppress window move/resize handlers for the dragged group.
+    var barDraggingGroupID: UUID?
+    /// Group frame at bar drag start, for absolute positioning.
+    var barDragInitialFrame: CGRect?
 
     var isCycleCooldownActive: Bool {
         cycleEndTime.map { Date().timeIntervalSince($0) < Self.cycleCooldownDuration } ?? false
@@ -123,6 +127,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         hkm.onReleaseTab = { [weak self] in
             self?.handleHotkeyReleaseTab()
+        }
+        hkm.onCloseTab = { [weak self] in
+            self?.handleHotkeyCloseTab()
         }
         hkm.onGroupAllInSpace = { [weak self] in
             self?.groupAllInSpace()

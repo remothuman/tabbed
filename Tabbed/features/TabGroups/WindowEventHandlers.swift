@@ -67,6 +67,7 @@ extension AppDelegate {
               activeWindow.id == windowID,
               let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
+        if barDraggingGroupID == group.id { return }
         if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
 
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
@@ -97,6 +98,7 @@ extension AppDelegate {
               activeWindow.id == windowID,
               let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
+        if barDraggingGroupID == group.id { return }
         if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
 
         if AccessibilityHelper.isFullScreen(activeWindow.element) {

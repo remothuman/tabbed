@@ -146,6 +146,18 @@ extension AppDelegate {
             }
         )
 
+        panel.onBarDragged = { [weak self] totalDx, totalDy in
+            self?.handleBarDrag(group: group, totalDx: totalDx, totalDy: totalDy)
+        }
+        panel.onBarDragEnded = { [weak self, weak panel] in
+            guard let panel else { return }
+            self?.handleBarDragEnded(group: group, panel: panel)
+        }
+        panel.onBarDoubleClicked = { [weak self, weak panel] in
+            guard let panel else { return }
+            self?.toggleZoom(group: group, panel: panel)
+        }
+
         tabBarPanels[group.id] = panel
 
         for window in group.windows {
@@ -310,6 +322,7 @@ extension AppDelegate {
     }
 
     func handleGroupDissolution(group: TabGroup, panel: TabBarPanel) {
+        if barDraggingGroupID == group.id { barDraggingGroupID = nil }
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
         globalMRU.removeAll { $0 == .group(group.id) }
@@ -333,6 +346,7 @@ extension AppDelegate {
     func disbandGroup(_ group: TabGroup) {
         guard let panel = tabBarPanels[group.id] else { return }
 
+        if barDraggingGroupID == group.id { barDraggingGroupID = nil }
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
         globalMRU.removeAll { $0 == .group(group.id) }
@@ -358,6 +372,7 @@ extension AppDelegate {
     func quitGroup(_ group: TabGroup) {
         guard let panel = tabBarPanels[group.id] else { return }
 
+        if barDraggingGroupID == group.id { barDraggingGroupID = nil }
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
         globalMRU.removeAll { $0 == .group(group.id) }
@@ -477,12 +492,116 @@ extension AppDelegate {
         releaseTab(at: group.activeIndex, from: group, panel: panel)
     }
 
+    func handleHotkeyCloseTab() {
+        guard let (group, panel) = activeGroup() else { return }
+        closeTab(at: group.activeIndex, from: group, panel: panel)
+    }
+
     func handleHotkeySwitchToTab(_ index: Int) {
         guard let (group, panel) = activeGroup(),
               index >= 0, !group.windows.isEmpty else { return }
         let targetIndex = (index == 8) ? group.windows.count - 1 : index
         guard targetIndex < group.windows.count else { return }
         switchTab(in: group, to: targetIndex, panel: panel)
+    }
+
+    // MARK: - Bar Drag & Zoom
+
+    func handleBarDrag(group: TabGroup, totalDx: CGFloat, totalDy: CGFloat) {
+        if barDraggingGroupID == nil {
+            barDraggingGroupID = group.id
+            barDragInitialFrame = group.frame
+        }
+        guard let initial = barDragInitialFrame else { return }
+
+        // AppKit Y increases upward, AX Y increases downward — negate dy
+        let newFrame = CGRect(
+            x: initial.origin.x + totalDx,
+            y: initial.origin.y - totalDy,
+            width: initial.width,
+            height: initial.height
+        )
+        group.frame = newFrame
+
+        // Only move the active (visible) window during drag for performance
+        if let activeWindow = group.activeWindow {
+            setExpectedFrame(newFrame, for: [activeWindow.id])
+            AccessibilityHelper.setPosition(of: activeWindow.element, to: newFrame.origin)
+        }
+    }
+
+    func handleBarDragEnded(group: TabGroup, panel: TabBarPanel) {
+        barDraggingGroupID = nil
+        barDragInitialFrame = nil
+
+        // Sync all windows to the final position
+        let allIDs = group.windows.map(\.id)
+        setExpectedFrame(group.frame, for: allIDs)
+        for window in group.windows {
+            AccessibilityHelper.setFrame(of: window.element, to: group.frame)
+        }
+
+        // Apply clamping in case group was dragged near top of screen
+        guard let activeWindow = group.activeWindow else { return }
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: group.frame.origin)
+        let (adjustedFrame, squeezeDelta) = applyClamp(
+            element: activeWindow.element, windowID: activeWindow.id,
+            frame: group.frame, visibleFrame: visibleFrame,
+            existingSqueezeDelta: group.tabBarSqueezeDelta
+        )
+        if adjustedFrame != group.frame {
+            group.frame = adjustedFrame
+            group.tabBarSqueezeDelta = squeezeDelta
+            let otherIDs = group.windows.filter { $0.id != activeWindow.id }.map(\.id)
+            setExpectedFrame(adjustedFrame, for: otherIDs)
+            for window in group.windows where window.id != activeWindow.id {
+                AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
+            }
+        }
+
+        panel.positionAbove(windowFrame: group.frame)
+        panel.orderAbove(windowID: activeWindow.id)
+        evaluateAutoCapture()
+    }
+
+    func toggleZoom(group: TabGroup, panel: TabBarPanel) {
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: group.frame.origin)
+        let isMaxed = ScreenCompensation.isMaximized(
+            groupFrame: group.frame,
+            squeezeDelta: group.tabBarSqueezeDelta,
+            visibleFrame: visibleFrame
+        )
+
+        if isMaxed, let preZoom = group.preZoomFrame {
+            // Restore pre-zoom frame
+            group.preZoomFrame = nil
+            setGroupFrame(group, to: preZoom, panel: panel)
+        } else {
+            // Save current frame and zoom to fill screen
+            group.preZoomFrame = group.frame
+            let zoomedFrame = CGRect(
+                x: visibleFrame.origin.x,
+                y: visibleFrame.origin.y + ScreenCompensation.tabBarHeight,
+                width: visibleFrame.width,
+                height: visibleFrame.height - ScreenCompensation.tabBarHeight
+            )
+            group.tabBarSqueezeDelta = ScreenCompensation.tabBarHeight
+            setGroupFrame(group, to: zoomedFrame, panel: panel)
+        }
+    }
+
+    private func setGroupFrame(_ group: TabGroup, to frame: CGRect, panel: TabBarPanel) {
+        group.frame = frame
+        let allIDs = group.windows.map(\.id)
+        setExpectedFrame(frame, for: allIDs)
+        for window in group.windows {
+            AccessibilityHelper.setFrame(of: window.element, to: frame)
+        }
+        panel.positionAbove(windowFrame: frame)
+        if let activeWindow = group.activeWindow {
+            panel.orderAbove(windowID: activeWindow.id)
+        }
+        evaluateAutoCapture()
     }
 
     // MARK: - Cross-Panel Drag & Drop

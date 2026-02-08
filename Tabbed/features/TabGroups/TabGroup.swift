@@ -10,6 +10,8 @@ class TabGroup: Identifiable, ObservableObject {
     @Published var dropIndicatorIndex: Int? = nil
     /// How many pixels the window was squeezed down when the group was created (0 if no squeeze was needed).
     var tabBarSqueezeDelta: CGFloat = 0
+    /// Stored frame before zoom, used to restore on second double-click.
+    var preZoomFrame: CGRect?
     /// The macOS Space this group belongs to. 0 means unknown (e.g. restored groups that couldn't resolve their space).
     var spaceID: UInt64
 
