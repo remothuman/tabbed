@@ -1,24 +1,33 @@
 ## Next:
-- shift select multiple tabs plus right click menu (disband, make own window, quit windows)
-    - then, drag out to turn into new window
-    - investigate if we can drag ff/chrome tabs to us
+   
+>>>>
 
 - maybe: name windows for displation in quick switcher~
 
 - promote worktree branch to main
 
-- make horizontal switcher bigger
-    + maximum window title length (can be generous)
+
+
+- new tab pop in animation especially on auto detection add
+
 
 - fullscreen to unfullscreen restoration
 
+- make sure you can have multiple fullscreen windows on one space and the new app detection logic still joins it to the active one
 
+- hyper t not in a window triggers new group. another customizable shortcut does new group from all in space (hyper n)
+
+- option to have tabs have a max size and left align, 
+    - make sure dragging tab bar has sane behavior
 ---------------------
 - maybe: make height 24 instead of 28 to match menu bar on my m1 mac air (remove from padding)
     - prompt: make the tab bar height 24 instead of 28: change tabBarHeight in TabBarPanel.swift to 24, change tab item .padding(.vertical, 4) to .padding(.vertical, 3) in TabBarView.swift, and change the outer HStack .padding(.vertical, 2) to .padding(.top, 1) .padding(.bottom, 1)  
     
     
 - maybe: option to always make all lone windows single tabbed windows
+
+- maybe: option for quick switcher to bring window to you instead of you to window, this way there is no space switch animation
+- wait. this is also how we can clean up mission control view. clicking a tab brings the window here. all other windows live can live on their own desktop away from site (holy moly)
 
 - simplify session restore config options maybe
 
