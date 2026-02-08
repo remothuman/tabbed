@@ -7,6 +7,7 @@ class HotkeyManager {
 
     var onNewTab: (() -> Void)?
     var onReleaseTab: (() -> Void)?
+    var onGroupAllInSpace: (() -> Void)?
     var onCycleTab: (() -> Void)?
     var onSwitchToTab: ((Int) -> Void)?
     var onGlobalSwitcher: (() -> Void)?
@@ -131,6 +132,10 @@ class HotkeyManager {
         }
         if config.releaseTab.matches(event) {
             onReleaseTab?()
+            return true
+        }
+        if config.groupAllInSpace.matches(event) {
+            onGroupAllInSpace?()
             return true
         }
         if config.cycleTab.matches(event), !event.isARepeat {

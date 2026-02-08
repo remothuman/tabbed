@@ -123,6 +123,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hkm.onReleaseTab = { [weak self] in
             self?.handleHotkeyReleaseTab()
         }
+        hkm.onGroupAllInSpace = { [weak self] in
+            self?.groupAllInSpace()
+        }
         hkm.onCycleTab = { [weak self] in
             self?.handleHotkeyCycleTab()
         }

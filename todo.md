@@ -15,10 +15,12 @@
 
 - make sure you can have multiple fullscreen windows on one space and the new app detection logic still joins it to the active one
 
-- hyper t not in a window triggers new group. another customizable shortcut does new group from all in space (hyper n)
 
 - option to have tabs have a max size and left align, 
     - make sure dragging tab bar has sane behavior
+    
+    - option in settings to change tab style: what we have now vs left aligned tabs with a max width (more like chrome etc) - keep task bar undraggable for now, but will have room to allow drag in the future
+    
 ---------------------
 - maybe: make height 24 instead of 28 to match menu bar on my m1 mac air (remove from padding)
     - prompt: make the tab bar height 24 instead of 28: change tabBarHeight in TabBarPanel.swift to 24, change tab item .padding(.vertical, 4) to .padding(.vertical, 3) in TabBarView.swift, and change the outer HStack .padding(.vertical, 2) to .padding(.top, 1) .padding(.bottom, 1)  

@@ -111,6 +111,7 @@ struct SettingsView: View {
                 VStack(spacing: 1) {
                     shortcutRow(.newTab)
                     shortcutRow(.releaseTab)
+                    shortcutRow(.groupAllInSpace)
                     shortcutRow(.cycleTab)
                     shortcutRow(.globalSwitcher)
 
@@ -249,6 +250,7 @@ struct SettingsView: View {
         switch action {
         case .newTab: return config.newTab
         case .releaseTab: return config.releaseTab
+        case .groupAllInSpace: return config.groupAllInSpace
         case .cycleTab: return config.cycleTab
         case .globalSwitcher: return config.globalSwitcher
         case .switchToTab(let n): return config.switchToTab[n - 1]
@@ -262,6 +264,7 @@ struct SettingsView: View {
         switch action {
         case .newTab: config.newTab = binding
         case .releaseTab: config.releaseTab = binding
+        case .groupAllInSpace: config.groupAllInSpace = binding
         case .cycleTab: config.cycleTab = binding
         case .globalSwitcher: config.globalSwitcher = binding
         case .switchToTab(let n): config.switchToTab[n - 1] = binding
@@ -274,6 +277,7 @@ struct SettingsView: View {
         let unused = KeyBinding(modifiers: 0, keyCode: 0)
         if action != .newTab, config.newTab == binding { config.newTab = unused }
         if action != .releaseTab, config.releaseTab == binding { config.releaseTab = unused }
+        if action != .groupAllInSpace, config.groupAllInSpace == binding { config.groupAllInSpace = unused }
         if action != .cycleTab, config.cycleTab == binding { config.cycleTab = unused }
         if action != .globalSwitcher, config.globalSwitcher == binding { config.globalSwitcher = unused }
         for i in 0..<config.switchToTab.count {
@@ -289,14 +293,16 @@ struct SettingsView: View {
 enum ShortcutAction: Equatable {
     case newTab
     case releaseTab
+    case groupAllInSpace
     case cycleTab
     case globalSwitcher
     case switchToTab(Int)
 
     var label: String {
         switch self {
-        case .newTab: return "New Tab"
+        case .newTab: return "New Tab / New Group"
         case .releaseTab: return "Release Tab"
+        case .groupAllInSpace: return "Group All in Space"
         case .cycleTab: return "Cycle Tabs (MRU)"
         case .globalSwitcher: return "Global Switcher"
         case .switchToTab(let n): return "Switch to Tab \(n)"

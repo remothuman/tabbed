@@ -431,11 +431,32 @@ extension AppDelegate {
     }
 
     func handleHotkeyNewTab() {
-        let result = activeGroup()
-        Logger.log("[HK] handleHotkeyNewTab called — activeGroup=\(result != nil)")
-        guard let (group, _) = result else { return }
-        Logger.log("[HK] showing window picker for group \(group.id)")
-        showWindowPicker(addingTo: group)
+        let result = focusedWindowGroup()
+        Logger.log("[HK] handleHotkeyNewTab called — focusedGroup=\(result != nil)")
+        if let (group, _) = result {
+            Logger.log("[HK] showing window picker for group \(group.id)")
+            showWindowPicker(addingTo: group)
+        } else {
+            Logger.log("[HK] no focused group — showing window picker for new group")
+            showWindowPicker()
+        }
+    }
+
+    /// Returns the group that the currently focused window belongs to,
+    /// without falling back to `lastActiveGroupID`.
+    func focusedWindowGroup() -> (TabGroup, TabBarPanel)? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AccessibilityHelper.appElement(for: frontApp.processIdentifier)
+        var focusedValue: AnyObject?
+        let result = AXUIElementCopyAttributeValue(
+            appElement, kAXFocusedWindowAttribute as CFString, &focusedValue
+        )
+        guard result == .success, let ref = focusedValue else { return nil }
+        let element = ref as! AXUIElement // swiftlint:disable:this force_cast
+        guard let windowID = AccessibilityHelper.windowID(for: element),
+              let group = groupManager.group(for: windowID),
+              let panel = tabBarPanels[group.id] else { return nil }
+        return (group, panel)
     }
 
     func handleHotkeyReleaseTab() {
