@@ -17,11 +17,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Snapshots loaded at launch for deferred "Restore Previous Session" from menu.
     private var pendingSessionSnapshots: [GroupSnapshot]?
     let sessionState = SessionState()
-    /// Window IDs we're programmatically moving/resizing — suppress their AX notifications.
-    /// Each window has its own cancellable timer so overlapping programmatic changes
-    /// extend the suppression window instead of leaving gaps.
-    private var suppressedWindowIDs: Set<CGWindowID> = []
-    private var suppressionWorkItems: [CGWindowID: DispatchWorkItem] = [:]
+    /// Frames we've programmatically set via AX. When a move/resize notification
+    /// arrives and the window's current frame matches (or is within the deadline),
+    /// the notification is from our own setFrame call and should be ignored.
+    private var expectedFrames: [CGWindowID: (frame: CGRect, deadline: Date)] = [:]
     /// Pending delayed re-syncs for animated resizes, keyed by group ID.
     private var resyncWorkItems: [UUID: DispatchWorkItem] = [:]
     /// Auto-capture state: the group currently in "workspace takeover" mode.
@@ -181,7 +180,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                     guard let self else { return }
                     self.restoreSession(snapshots: snapshots, mode: sessionConfig.restoreMode)
-                    // In smart mode, show manual restore button only if some groups failed
                     if sessionConfig.restoreMode == .smart,
                        self.groupManager.groups.count < snapshots.count {
                         self.pendingSessionSnapshots = snapshots
@@ -395,7 +393,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - All in Space
 
     private func groupAllInSpace() {
-        let allWindows = windowManager.windowsInZOrder()
+        let allWindows = WindowDiscovery.currentSpace()
         let ungrouped = allWindows.filter { !groupManager.isWindowGrouped($0.id) }
         guard !ungrouped.isEmpty else { return }
         createGroup(with: ungrouped)
@@ -425,7 +423,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         group.tabBarSqueezeDelta = squeezeDelta
         group.switchTo(index: activeIndex)
 
-        suppressNotifications(for: group.windows.map(\.id))
+        setExpectedFrame(frame, for: group.windows.map(\.id))
 
         for window in group.windows {
             AccessibilityHelper.setFrame(of: window.element, to: frame)
@@ -461,6 +459,35 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             panel.orderAbove(windowID: activeWindow.id)
         }
 
+        // Verify positioning after AX commands have taken effect in target apps.
+        // Fixes tab bar overlapping windows on first render.
+        let groupID = group.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self,
+                  let group = self.groupManager.groups.first(where: { $0.id == groupID }),
+                  let panel = self.tabBarPanels[groupID],
+                  let activeWindow = group.activeWindow,
+                  let actualFrame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
+
+            let clamped = self.clampFrameForTabBar(actualFrame)
+            if !self.framesMatch(clamped, group.frame) {
+                if clamped != actualFrame {
+                    self.setExpectedFrame(clamped, for: [activeWindow.id])
+                    AccessibilityHelper.setFrame(of: activeWindow.element, to: clamped)
+                }
+                group.frame = clamped
+                let others = group.windows.filter { $0.id != activeWindow.id }
+                if !others.isEmpty {
+                    self.setExpectedFrame(clamped, for: others.map(\.id))
+                    for window in others {
+                        AccessibilityHelper.setFrame(of: window.element, to: clamped)
+                    }
+                }
+            }
+            panel.positionAbove(windowFrame: group.frame)
+            panel.orderAbove(windowID: activeWindow.id)
+        }
+
         evaluateAutoCapture()
         return group
     }
@@ -475,8 +502,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func switchTab(in group: TabGroup, to index: Int, panel: TabBarPanel) {
+        let previousID = group.activeWindow?.id
         group.switchTo(index: index)
         guard let window = group.activeWindow else { return }
+        Logger.log("[DEBUG] switchTab: \(previousID.map(String.init) ?? "nil") → \(window.id) (index=\(index))")
         lastActiveGroupID = group.id
         // Update MRU synchronously for manual switches (cycling defers to endCycle)
         if !group.isCycling {
@@ -497,7 +526,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Sync window to the group's canonical frame. This acts as a fallback
         // for any prior resize that left this window at the wrong size (e.g.
         // a double-click maximize that only partially synced).
-        suppressNotifications(for: [window.id])
+        setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
 
         raiseAndUpdate(window, in: group)
@@ -508,6 +537,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let window = group.windows[safe: index] else { return }
 
         windowObserver.stopObserving(window: window)
+        expectedFrames.removeValue(forKey: window.id)
 
         groupManager.releaseWindow(withID: window.id, from: group)
 
@@ -521,6 +551,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func addWindow(_ window: WindowInfo, to group: TabGroup) {
+        setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
         groupManager.addWindow(window, to: group)
         windowObserver.observe(window: window)
@@ -539,8 +570,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     // MARK: - Session Restore
 
     private func restoreSession(snapshots: [GroupSnapshot], mode: RestoreMode) {
-        windowManager.refreshWindowList()
-        let liveWindows = windowManager.availableWindows.filter {
+        let liveWindows = WindowDiscovery.allSpaces(includeHidden: true).filter {
             !groupManager.isWindowGrouped($0.id)
         }
 
@@ -688,19 +718,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
-        let zWindows = windowManager.windowsInZOrderAllSpaces()
+        let zWindows = WindowDiscovery.allSpaces()
 
-        // Sort by global app MRU order; within the same app, preserve CG z-order.
+        // Build a window list that uses app MRU for cross-space ordering
+        // but only promotes ONE window per app (the frontmost in CG z-order),
+        // leaving other same-app windows in their natural CG z-order position.
         let sortedWindows: [WindowInfo]
         if globalAppMRU.isEmpty {
             sortedWindows = zWindows
         } else {
-            sortedWindows = zWindows.enumerated().sorted { a, b in
-                let rankA = globalAppMRU.firstIndex(of: a.element.ownerPID) ?? Int.max
-                let rankB = globalAppMRU.firstIndex(of: b.element.ownerPID) ?? Int.max
-                if rankA != rankB { return rankA < rankB }
-                return a.offset < b.offset
-            }.map(\.element)
+            var placed = Set<CGWindowID>()
+            var result: [WindowInfo] = []
+
+            // Phase 1: one representative per MRU app (frontmost CG window)
+            for pid in globalAppMRU {
+                if let window = zWindows.first(where: { $0.ownerPID == pid && !placed.contains($0.id) }) {
+                    result.append(window)
+                    placed.insert(window.id)
+                }
+            }
+
+            // Phase 2: remaining windows in CG z-order
+            for window in zWindows where !placed.contains(window.id) {
+                result.append(window)
+            }
+
+            sortedWindows = result
         }
 
         // Build items: groups are first-class, windows fill the gaps
@@ -737,6 +780,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for group in groupManager.groups where !seenGroupIDs.contains(group.id) {
             items.append(.group(group))
         }
+
+        // Diagnostic: detect if frontmost window ended up as singleWindow despite being in a group
+        if case .singleWindow(let w) = items.first, groupManager.groups.count > 0 {
+            Logger.log("[GS] WARNING: frontmost window \(w.id) is singleWindow but groups exist — possible stale ID")
+        }
+        Logger.log("[GS] items=\(items.map { $0.isGroup ? "G" : "W" }.joined())")
 
         guard !items.isEmpty else { return }
 
@@ -814,6 +863,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if cyclingGroup === group { cyclingGroup = nil }
         resyncWorkItems[group.id]?.cancel()
         resyncWorkItems.removeValue(forKey: group.id)
+        for window in group.windows { expectedFrames.removeValue(forKey: window.id) }
 
         let delta = group.tabBarSqueezeDelta
         if let lastWindow = group.windows.first {
@@ -843,6 +893,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if cyclingGroup === group { cyclingGroup = nil }
         resyncWorkItems[group.id]?.cancel()
         resyncWorkItems.removeValue(forKey: group.id)
+        for window in group.windows { expectedFrames.removeValue(forKey: window.id) }
 
         let delta = group.tabBarSqueezeDelta
         for window in group.windows {
@@ -865,21 +916,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     // MARK: - Notification Suppression
 
-    /// Suppress AX move/resize notifications for the given window IDs.
-    /// Each window gets its own cancellable timer. If a new programmatic change
-    /// arrives for an already-suppressed window, the old timer is cancelled and
-    /// a fresh one starts — preventing gaps in suppression during rapid updates.
-    private func suppressNotifications(for windowIDs: [CGWindowID]) {
+    private static let frameTolerance: CGFloat = 1.0
+    private static let suppressionDeadline: TimeInterval = 0.5
+
+    /// Record that we're about to programmatically set these windows to the given frame.
+    private func setExpectedFrame(_ frame: CGRect, for windowIDs: [CGWindowID]) {
+        let deadline = Date().addingTimeInterval(Self.suppressionDeadline)
         for id in windowIDs {
-            suppressionWorkItems[id]?.cancel()
-            suppressedWindowIDs.insert(id)
-            let workItem = DispatchWorkItem { [weak self] in
-                self?.suppressedWindowIDs.remove(id)
-                self?.suppressionWorkItems.removeValue(forKey: id)
-            }
-            suppressionWorkItems[id] = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: workItem)
+            expectedFrames[id] = (frame: frame, deadline: deadline)
         }
+    }
+
+    /// Check whether a notification should be suppressed because the window
+    /// is at the frame we programmatically set (or an animation intermediate).
+    private func shouldSuppress(windowID: CGWindowID, currentFrame: CGRect) -> Bool {
+        guard let entry = expectedFrames[windowID] else { return false }
+
+        // Frame matches what we set → our setFrame echo, suppress.
+        // Do NOT remove the entry: setFrame generates both a move and a resize
+        // notification, so we need the entry alive to suppress both.
+        if framesMatch(currentFrame, entry.frame) {
+            return true
+        }
+
+        // Frame doesn't match but we're within the deadline → animation intermediate, suppress.
+        if Date() < entry.deadline {
+            return true
+        }
+
+        // Past deadline and frames still don't match → genuine user action.
+        expectedFrames.removeValue(forKey: windowID)
+        return false
+    }
+
+    private func framesMatch(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.origin.x - b.origin.x) <= Self.frameTolerance &&
+        abs(a.origin.y - b.origin.y) <= Self.frameTolerance &&
+        abs(a.width - b.width) <= Self.frameTolerance &&
+        abs(a.height - b.height) <= Self.frameTolerance
     }
 
     // MARK: - AXObserver Handlers
@@ -898,16 +972,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleWindowMoved(_ windowID: CGWindowID) {
-        guard !suppressedWindowIDs.contains(windowID) else { return }
         guard let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
               let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
+        if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
+
         let adjustedFrame = clampFrameForTabBar(frame)
-        if adjustedFrame.origin != frame.origin {
-            AccessibilityHelper.setPosition(of: activeWindow.element, to: adjustedFrame.origin)
+        if adjustedFrame != frame {
+            setExpectedFrame(adjustedFrame, for: [windowID])
+            AccessibilityHelper.setFrame(of: activeWindow.element, to: adjustedFrame)
         }
 
         group.frame = adjustedFrame
@@ -917,11 +993,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             group.tabBarSqueezeDelta = adjustedFrame.origin.y - frame.origin.y
         }
 
-        // Suppress notifications for other windows we're about to sync
-        let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
-        suppressNotifications(for: otherIDs)
-
         // Sync other windows
+        let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
+        setExpectedFrame(adjustedFrame, for: otherIDs)
         for window in group.windows where window.id != windowID {
             AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
         }
@@ -933,17 +1007,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func handleWindowResized(_ windowID: CGWindowID) {
-        guard !suppressedWindowIDs.contains(windowID) else { return }
         guard let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
               let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
 
+        if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
+
         // Detect native full-screen (green button / Mission Control).
         // We use the AXFullScreen attribute rather than a size heuristic so that
         // merely maximising a window to fill the screen doesn't eject it.
         if AccessibilityHelper.isFullScreen(activeWindow.element) {
+            expectedFrames.removeValue(forKey: windowID)
             windowObserver.stopObserving(window: activeWindow)
             groupManager.releaseWindow(withID: windowID, from: group)
             if !groupManager.groups.contains(where: { $0.id == group.id }) {
@@ -957,8 +1033,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         // Clamp to visible frame — ensure room for tab bar
         let adjustedFrame = clampFrameForTabBar(frame)
-        if adjustedFrame.origin != frame.origin {
-            AccessibilityHelper.setPosition(of: activeWindow.element, to: adjustedFrame.origin)
+        if adjustedFrame != frame {
+            setExpectedFrame(adjustedFrame, for: [windowID])
+            AccessibilityHelper.setFrame(of: activeWindow.element, to: adjustedFrame)
         }
 
         group.frame = adjustedFrame
@@ -968,11 +1045,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             group.tabBarSqueezeDelta = adjustedFrame.origin.y - frame.origin.y
         }
 
-        // Suppress notifications for other windows we're about to sync
-        let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
-        suppressNotifications(for: otherIDs)
-
         // Sync other windows
+        let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
+        setExpectedFrame(adjustedFrame, for: otherIDs)
         for window in group.windows where window.id != windowID {
             AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
         }
@@ -998,9 +1073,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let clamped = self.clampFrameForTabBar(currentFrame)
             guard clamped != group.frame else { return }
 
+            if clamped != currentFrame {
+                self.setExpectedFrame(clamped, for: [activeWindow.id])
+                AccessibilityHelper.setFrame(of: activeWindow.element, to: clamped)
+            }
             group.frame = clamped
             let others = group.windows.filter { $0.id != activeWindow.id }
-            self.suppressNotifications(for: others.map(\.id))
+            self.setExpectedFrame(clamped, for: others.map(\.id))
             for window in others {
                 AccessibilityHelper.setFrame(of: window.element, to: clamped)
             }
@@ -1009,7 +1088,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.evaluateAutoCapture()
         }
         resyncWorkItems[groupID] = resync
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: resync)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: resync)
     }
 
     private func handleWindowFocused(pid: pid_t, element: AXUIElement) {
@@ -1017,6 +1096,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id] else { return }
 
+        let previousID = group.activeWindow?.id
+        if previousID != windowID {
+            Logger.log("[DEBUG] handleWindowFocused: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (pid=\(pid))")
+        }
         group.switchTo(windowID: windowID)
         lastActiveGroupID = group.id
         if !group.isCycling, !isCycleCooldownActive {
@@ -1029,6 +1112,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id],
               let window = group.windows.first(where: { $0.id == windowID }) else { return }
+
+        Logger.log("[DEBUG] handleWindowDestroyed: windowID=\(windowID), stillExists=\(AccessibilityHelper.windowExists(id: windowID)), activeID=\(group.activeWindow.map { String($0.id) } ?? "nil")")
 
         // Clean up the old (now-invalid) element from observer bookkeeping.
         windowObserver.handleDestroyedWindow(pid: window.ownerPID, elementHash: CFHash(window.element))
@@ -1046,6 +1131,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return
         }
 
+        expectedFrames.removeValue(forKey: windowID)
         groupManager.releaseWindow(withID: windowID, from: group)
 
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
@@ -1086,6 +1172,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
               let group = groupManager.group(for: windowID),
               let panel = tabBarPanels[group.id] else { return }
 
+        let previousID = group.activeWindow?.id
+        if previousID != windowID {
+            Logger.log("[DEBUG] handleAppActivated: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (app=\(app.localizedName ?? "?"), pid=\(pid))")
+        }
         group.switchTo(windowID: windowID)
         lastActiveGroupID = group.id
         if !group.isCycling, !isCycleCooldownActive {
@@ -1130,7 +1220,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// visible on the screen.
     private func allWindowsOnScreenBelongToGroup(_ group: TabGroup, on screen: NSScreen) -> Bool {
         let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
-        let allWindows = windowManager.windowsInZOrder()
+        let allWindows = WindowDiscovery.currentSpace()
 
         // Check no ungrouped windows are on this screen
         for window in allWindows {
@@ -1240,6 +1330,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     element: appElement,
                     notification: kAXWindowCreatedNotification as String
                 )
+                AccessibilityHelper.removeNotification(
+                    observer: observer,
+                    element: appElement,
+                    notification: kAXFocusedWindowChangedNotification as String
+                )
             }
             AccessibilityHelper.removeObserver(observer)
         }
@@ -1268,7 +1363,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let delegate = Unmanaged<AppDelegate>.fromOpaque(refcon).takeUnretainedValue()
             var pid: pid_t = 0
             AXUIElementGetPid(element, &pid)
-            delegate.handleWindowCreated(element: element, pid: pid)
+            let notifString = notification as String
+            if notifString == kAXWindowCreatedNotification as String {
+                delegate.handleWindowCreated(element: element, pid: pid)
+            } else if notifString == kAXFocusedWindowChangedNotification as String {
+                delegate.handleAutoCaptureFocusChanged(element: element, pid: pid)
+            }
         }
 
         guard let observer = AccessibilityHelper.createObserver(for: pid, callback: callback) else { return }
@@ -1278,6 +1378,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             observer: observer,
             element: appElement,
             notification: kAXWindowCreatedNotification as String,
+            context: context
+        )
+        AccessibilityHelper.addNotification(
+            observer: observer,
+            element: appElement,
+            notification: kAXFocusedWindowChangedNotification as String,
             context: context
         )
         autoCaptureObservers[pid] = observer
@@ -1292,6 +1398,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 element: appElement,
                 notification: kAXWindowCreatedNotification as String
             )
+            AccessibilityHelper.removeNotification(
+                observer: observer,
+                element: appElement,
+                notification: kAXFocusedWindowChangedNotification as String
+            )
         }
         AccessibilityHelper.removeObserver(observer)
     }
@@ -1299,33 +1410,66 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func handleWindowCreated(element: AXUIElement, pid: pid_t) {
         guard autoCaptureGroup != nil else { return }
 
-        // Delay to let the window settle its frame
+        // Delay to let the window settle in the CG window list
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            guard let self,
-                  let group = self.autoCaptureGroup,
-                  let screen = self.autoCaptureScreen else { return }
-
-            guard let window = self.windowManager.buildWindowInfo(element: element, pid: pid) else { return }
-
-            // Skip if already grouped
-            guard !self.groupManager.isWindowGrouped(window.id) else { return }
-
-            // Skip tiny/zero-size windows
-            if let size = AccessibilityHelper.getSize(of: element),
-               size.width < 200 || size.height < 150 {
-                return
+            guard let self, self.autoCaptureGroup != nil else { return }
+            if WindowDiscovery.buildWindowInfo(element: element, pid: pid) != nil {
+                self.captureWindowIfEligible(element: element, pid: pid, source: "created")
+            } else {
+                // CG window list race — retry once after more time
+                Logger.log("[AutoCapture] Window not in CG list yet for pid \(pid), will retry")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                    self?.captureWindowIfEligible(element: element, pid: pid, source: "created-retry")
+                }
             }
-
-            // Check window is on the auto-capture screen
-            guard let frame = AccessibilityHelper.getFrame(of: element) else { return }
-            let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
-            guard visibleFrame.intersects(frame) else { return }
-
-            Logger.log("[AutoCapture] Capturing window \(window.id) (\(window.appName): \(window.title))")
-            self.suppressNotifications(for: [window.id])
-            self.addWindow(window, to: group)
-            self.evaluateAutoCapture()
         }
+    }
+
+    private func handleAutoCaptureFocusChanged(element: AXUIElement, pid: pid_t) {
+        guard autoCaptureGroup != nil else { return }
+
+        // The element might be the focused window itself or the app element.
+        let windowElement: AXUIElement
+        if AccessibilityHelper.windowID(for: element) != nil {
+            windowElement = element
+        } else {
+            // Element is the app — query for the focused window
+            var focusedWindow: AnyObject?
+            let result = AXUIElementCopyAttributeValue(
+                element, kAXFocusedWindowAttribute as CFString, &focusedWindow
+            )
+            guard result == .success, let ref = focusedWindow else { return }
+            windowElement = ref as! AXUIElement // swiftlint:disable:this force_cast
+        }
+
+        captureWindowIfEligible(element: windowElement, pid: pid, source: "focus")
+    }
+
+    /// Shared logic for capturing a single window into the auto-capture group.
+    private func captureWindowIfEligible(element: AXUIElement, pid: pid_t, source: String) {
+        guard let group = autoCaptureGroup,
+              let screen = autoCaptureScreen else { return }
+
+        guard let window = WindowDiscovery.buildWindowInfo(element: element, pid: pid) else { return }
+
+        // Skip if already grouped
+        guard !groupManager.isWindowGrouped(window.id) else { return }
+
+        // Skip tiny/zero-size windows
+        if let size = AccessibilityHelper.getSize(of: element),
+           size.width < 200 || size.height < 150 {
+            return
+        }
+
+        // Check window is on the auto-capture screen
+        guard let frame = AccessibilityHelper.getFrame(of: element) else { return }
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
+        guard visibleFrame.intersects(frame) else { return }
+
+        Logger.log("[AutoCapture] Capturing window \(window.id) (\(window.appName): \(window.title)) [\(source)]")
+        setExpectedFrame(group.frame, for: [window.id])
+        addWindow(window, to: group)
+        evaluateAutoCapture()
     }
 
     @objc private func handleAppTerminated(_ notification: Notification) {
@@ -1336,6 +1480,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         for group in groupManager.groups {
             let affectedWindows = group.windows.filter { $0.ownerPID == pid }
             for window in affectedWindows {
+                expectedFrames.removeValue(forKey: window.id)
                 windowObserver.handleDestroyedWindow(pid: pid, elementHash: CFHash(window.element))
                 groupManager.releaseWindow(withID: window.id, from: group)
             }
