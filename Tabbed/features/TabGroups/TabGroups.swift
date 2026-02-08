@@ -232,16 +232,10 @@ extension AppDelegate {
         resyncWorkItems.removeValue(forKey: group.id)
         for window in group.windows { expectedFrames.removeValue(forKey: window.id) }
 
-        let delta = group.tabBarSqueezeDelta
         if let lastWindow = group.windows.first {
             windowObserver.stopObserving(window: lastWindow)
-            if delta > 0, let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
-                let expandedFrame = CGRect(
-                    x: lastFrame.origin.x,
-                    y: lastFrame.origin.y - delta,
-                    width: lastFrame.width,
-                    height: lastFrame.height + delta
-                )
+            if group.tabBarSqueezeDelta > 0, let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
+                let expandedFrame = ScreenCompensation.expandFrame(lastFrame, undoingSqueezeDelta: group.tabBarSqueezeDelta)
                 AccessibilityHelper.setFrame(of: lastWindow.element, to: expandedFrame)
             }
         }
@@ -261,16 +255,10 @@ extension AppDelegate {
         resyncWorkItems.removeValue(forKey: group.id)
         for window in group.windows { expectedFrames.removeValue(forKey: window.id) }
 
-        let delta = group.tabBarSqueezeDelta
         for window in group.windows {
             windowObserver.stopObserving(window: window)
-            if delta > 0, let frame = AccessibilityHelper.getFrame(of: window.element) {
-                let expandedFrame = CGRect(
-                    x: frame.origin.x,
-                    y: frame.origin.y - delta,
-                    width: frame.width,
-                    height: frame.height + delta
-                )
+            if group.tabBarSqueezeDelta > 0, let frame = AccessibilityHelper.getFrame(of: window.element) {
+                let expandedFrame = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: group.tabBarSqueezeDelta)
                 AccessibilityHelper.setFrame(of: window.element, to: expandedFrame)
             }
         }

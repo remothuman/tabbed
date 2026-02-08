@@ -25,20 +25,12 @@ extension AppDelegate {
             return (false, nil)
         }
         let visibleFrame = CoordinateConverter.visibleFrameInAX(for: screen)
-        let groupRect = CGRect(
-            x: group.frame.origin.x,
-            y: group.frame.origin.y - group.tabBarSqueezeDelta,
-            width: group.frame.width,
-            height: group.frame.height + group.tabBarSqueezeDelta
+        let maximized = ScreenCompensation.isMaximized(
+            groupFrame: group.frame,
+            squeezeDelta: group.tabBarSqueezeDelta,
+            visibleFrame: visibleFrame
         )
-        let tolerance: CGFloat = 20
-        return (
-            abs(groupRect.origin.x - visibleFrame.origin.x) <= tolerance &&
-            abs(groupRect.origin.y - visibleFrame.origin.y) <= tolerance &&
-            abs(groupRect.width - visibleFrame.width) <= tolerance &&
-            abs(groupRect.height - visibleFrame.height) <= tolerance,
-            screen
-        )
+        return (maximized, screen)
     }
 
     func allWindowsOnScreenBelongToGroup(_ group: TabGroup, on screen: NSScreen) -> Bool {

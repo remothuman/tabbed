@@ -20,9 +20,8 @@ extension AppDelegate {
         }
 
         group.frame = adjustedFrame
-        if adjustedFrame.origin.y != frame.origin.y {
-            group.tabBarSqueezeDelta = adjustedFrame.origin.y - frame.origin.y
-        }
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
+        group.tabBarSqueezeDelta = ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame).squeezeDelta
 
         let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
         setExpectedFrame(adjustedFrame, for: otherIDs)
@@ -64,9 +63,8 @@ extension AppDelegate {
         }
 
         group.frame = adjustedFrame
-        if adjustedFrame.origin.y != frame.origin.y {
-            group.tabBarSqueezeDelta = adjustedFrame.origin.y - frame.origin.y
-        }
+        let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
+        group.tabBarSqueezeDelta = ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame).squeezeDelta
 
         let otherIDs = group.windows.filter { $0.id != windowID }.map(\.id)
         setExpectedFrame(adjustedFrame, for: otherIDs)

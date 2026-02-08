@@ -38,13 +38,6 @@ extension AppDelegate {
 
     func clampFrameForTabBar(_ frame: CGRect) -> CGRect {
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
-        let tabBarHeight = TabBarPanel.tabBarHeight
-        var adjusted = frame
-        if frame.origin.y < visibleFrame.origin.y + tabBarHeight {
-            let delta = (visibleFrame.origin.y + tabBarHeight) - frame.origin.y
-            adjusted.origin.y += delta
-            adjusted.size.height = max(adjusted.size.height - delta, tabBarHeight)
-        }
-        return adjusted
+        return ScreenCompensation.clampResult(frame: frame, visibleFrame: visibleFrame).frame
     }
 }
