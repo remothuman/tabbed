@@ -429,7 +429,13 @@ extension AppDelegate {
             panel.orderAbove(windowID: newActive.id)
         }
 
-        setupGroup(with: windowsToMove, frame: frame, squeezeDelta: squeezeDelta)
+        guard let newGroup = setupGroup(with: windowsToMove, frame: frame, squeezeDelta: squeezeDelta) else { return }
+        if let activeWindow = newGroup.activeWindow {
+            raiseAndUpdate(activeWindow, in: newGroup)
+            if let newPanel = tabBarPanels[newGroup.id] {
+                newPanel.orderAbove(windowID: activeWindow.id)
+            }
+        }
     }
 
     func closeTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
