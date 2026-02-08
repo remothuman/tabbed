@@ -86,8 +86,8 @@ class TabBarPanel: NSPanel {
             onCrossPanelDrop: onCrossPanelDrop,
             onDragOverPanels: onDragOverPanels,
             onDragEnded: onDragEnded,
-            onTooltipHover: { [weak self] title, tabMidX in
-                self?.handleTooltipHover(title: title, tabMidX: tabMidX)
+            onTooltipHover: { [weak self] title, tabLeadingX in
+                self?.handleTooltipHover(title: title, tabLeadingX: tabLeadingX)
             }
         )
         // Remove previous hosting view if setContent is called again
@@ -140,7 +140,7 @@ class TabBarPanel: NSPanel {
 
     // MARK: - Tooltip
 
-    private func handleTooltipHover(title: String?, tabMidX: CGFloat) {
+    private func handleTooltipHover(title: String?, tabLeadingX: CGFloat) {
         tooltipTimer?.invalidate()
         tooltipTimer = nil
 
@@ -149,10 +149,17 @@ class TabBarPanel: NSPanel {
             return
         }
 
-        let screenTabMidX = frame.origin.x + tabMidX
+        let screenX = frame.origin.x + tabLeadingX
+
+        // If tooltip is already visible, glide immediately (no delay)
+        if tooltipPanel.isVisible {
+            tooltipPanel.show(title: title, belowPanelFrame: frame, tabLeadingX: screenX, animate: true)
+            return
+        }
+
         tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
             guard let self else { return }
-            self.tooltipPanel.show(title: title, belowPanelFrame: self.frame, tabMidX: screenTabMidX)
+            self.tooltipPanel.show(title: title, belowPanelFrame: self.frame, tabLeadingX: screenX)
         }
     }
 

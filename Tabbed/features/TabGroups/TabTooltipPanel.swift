@@ -38,8 +38,9 @@ class TabTooltipPanel: NSPanel {
         visualEffect.addSubview(label)
     }
 
-    /// Show the tooltip below the tab bar panel, centered on `tabMidX` (in screen coordinates).
-    func show(title: String, belowPanelFrame panelFrame: NSRect, tabMidX: CGFloat) {
+    /// Show the tooltip below the tab bar panel, left-aligned with `tabLeadingX` (in screen coordinates).
+    /// When `animate` is true, smoothly glides to the new position (Chrome-style).
+    func show(title: String, belowPanelFrame panelFrame: NSRect, tabLeadingX: CGFloat, animate: Bool = false) {
         label.stringValue = title
         label.sizeToFit()
 
@@ -47,11 +48,19 @@ class TabTooltipPanel: NSPanel {
         let height: CGFloat = 24
         let width = min(label.frame.width + padding * 2, 400)
 
-        // Center horizontally on tabMidX, position just below the tab bar panel
-        let x = tabMidX - width / 2
+        let x = tabLeadingX
         let y = panelFrame.origin.y - height - 2
+        let newFrame = NSRect(x: x, y: y, width: width, height: height)
 
-        setFrame(NSRect(x: x, y: y, width: width, height: height), display: true)
+        if animate && isVisible {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                self.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            setFrame(newFrame, display: true)
+        }
         visualEffect.frame = contentView!.bounds
         label.frame = NSRect(x: padding, y: (height - label.frame.height) / 2, width: width - padding * 2, height: label.frame.height)
 

@@ -200,6 +200,19 @@ struct SettingsView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
+            Divider()
+
+            Toggle(isOn: $tabBarConfig.showTooltip) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show Title Tooltip")
+                    Text("Shows the full window title on hover when tabs are narrow.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
             Spacer()
         }
     }

@@ -18,7 +18,7 @@ struct TabBarView: View {
     var onCrossPanelDrop: (Set<CGWindowID>, UUID, Int) -> Void
     var onDragOverPanels: (NSPoint) -> CrossPanelDropTarget?
     var onDragEnded: () -> Void
-    var onTooltipHover: ((_ title: String?, _ tabMidX: CGFloat) -> Void)?
+    var onTooltipHover: ((_ title: String?, _ tabLeadingX: CGFloat) -> Void)?
 
     static let horizontalPadding: CGFloat = 8
     static let addButtonWidth: CGFloat = 20
@@ -79,9 +79,9 @@ struct TabBarView: View {
                         let isDragging = draggingIDs.contains(window.id)
 
                         let tabWidth = isCompact ? compactTabWidth : equalTabStep
-                        let tabMidX = leadingPad + handleWidth + tabStep * CGFloat(index) + tabWidth / 2
+                        let tabLeadingX = leadingPad + handleWidth + tabStep * CGFloat(index)
 
-                        tabItem(for: window, at: index, compactWidth: isCompact ? compactTabWidth : nil, tabWidth: tabWidth, tabMidX: tabMidX)
+                        tabItem(for: window, at: index, compactWidth: isCompact ? compactTabWidth : nil, tabWidth: tabWidth, tabLeadingX: tabLeadingX)
                             .offset(x: isDragging
                                 ? dragTranslation
                                 : shiftOffset(for: index, targetIndex: targetIndex, tabStep: tabStep))
@@ -92,7 +92,7 @@ struct TabBarView: View {
                                 radius: isDragging ? 6 : 0,
                                 y: isDragging ? 1 : 0
                             )
-                            .animation(isDragging ? nil : .easeInOut(duration: 0.15), value: targetIndex)
+                            .animation(isDragging ? nil : .easeOut(duration: 0.15), value: targetIndex)
                             .transition(Self.tabExpandTransition)
                             .gesture(
                                 DragGesture(minimumDistance: 5)
@@ -281,11 +281,9 @@ struct TabBarView: View {
 
         let target = computeTargetIndex(tabStep: tabStep) ?? dragStartIndex
 
-        // Suppress all animations — tabs are already visually in position from
-        // the drag offsets, so the model reorder + state reset must be instant.
-        var t = Transaction()
-        t.disablesAnimations = true
-        withTransaction(t) {
+        // Use the same .easeOut curve as the .animation modifier on offset
+        // so the HStack reorder and offset reset cancel perfectly mid-flight.
+        withAnimation(.easeOut(duration: 0.15)) {
             if draggingIDs.count > 1 {
                 group.moveTabs(withIDs: draggingIDs, toIndex: target)
                 resetDragState()
@@ -331,7 +329,7 @@ struct TabBarView: View {
     }
 
     @ViewBuilder
-    private func tabItem(for window: WindowInfo, at index: Int, compactWidth: CGFloat? = nil, tabWidth: CGFloat = 0, tabMidX: CGFloat = 0) -> some View {
+    private func tabItem(for window: WindowInfo, at index: Int, compactWidth: CGFloat? = nil, tabWidth: CGFloat = 0, tabLeadingX: CGFloat = 0) -> some View {
         let isActive = index == group.activeIndex
         let isHovered = hoveredWindowID == window.id && draggingID == nil
         let isSelected = selectedIDs.contains(window.id)
@@ -382,11 +380,13 @@ struct TabBarView: View {
         }
         .onHover { hovering in
             hoveredWindowID = hovering ? window.id : nil
-            let title = window.title.isEmpty ? window.appName : window.title
-            if hovering && Self.isTitleTruncated(title: title, tabWidth: tabWidth) {
-                onTooltipHover?(title, tabMidX)
-            } else {
-                onTooltipHover?(nil, 0)
+            if tabBarConfig.showTooltip {
+                let title = window.title.isEmpty ? window.appName : window.title
+                if hovering && Self.isTitleTruncated(title: title, tabWidth: tabWidth) {
+                    onTooltipHover?(title, tabLeadingX)
+                } else {
+                    onTooltipHover?(nil, 0)
+                }
             }
         }
         .contextMenu {
