@@ -22,6 +22,7 @@ final class TabBarConfigTests: XCTestCase {
     func testDefaultStyle() {
         let config = TabBarConfig()
         XCTAssertEqual(config.style, .compact)
+        XCTAssertTrue(config.showDragHandle)
     }
 
     func testSaveAndLoad() {
@@ -60,5 +61,14 @@ final class TabBarConfigTests: XCTestCase {
         let json = "{}".data(using: .utf8)!
         let decoded = try JSONDecoder().decode(TabBarConfig.self, from: json)
         XCTAssertEqual(decoded.style, .compact)
+        XCTAssertTrue(decoded.showDragHandle)
+    }
+
+    func testSaveAndLoadDragHandle() {
+        let config = TabBarConfig(style: .compact, showDragHandle: false)
+        config.save()
+
+        let loaded = TabBarConfig.load()
+        XCTAssertFalse(loaded.showDragHandle)
     }
 }

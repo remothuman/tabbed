@@ -7,7 +7,7 @@ enum SettingsTab: Int {
     var contentHeight: CGFloat {
         switch self {
         case .general:   return 260
-        case .tabBar:    return 150
+        case .tabBar:    return 200
         case .shortcuts: return 520
         case .switcher:  return 350
         }
@@ -60,6 +60,7 @@ struct SettingsView: View {
                 .tag(SettingsTab.switcher)
         }
         .frame(width: 400)
+        .transaction { $0.animation = nil }
         .onChange(of: selectedTab) { _ in
             resizeWindowToFit()
         }
@@ -186,6 +187,19 @@ struct SettingsView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 4)
                 .padding(.bottom, 12)
+
+            Divider()
+
+            Toggle(isOn: $tabBarConfig.showDragHandle) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Show Drag Handle")
+                    Text("Adds a grip area on the left for dragging the tab bar.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
             Spacer()
         }

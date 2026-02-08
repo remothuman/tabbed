@@ -54,7 +54,8 @@ struct TabBarView: View {
         GeometryReader { geo in
             let tabCount = group.windows.count
             let isCompact = tabBarConfig.style == .compact
-            let availableWidth = geo.size.width - Self.horizontalPadding - Self.addButtonWidth - Self.dragHandleWidth
+            let handleWidth: CGFloat = tabBarConfig.showDragHandle ? Self.dragHandleWidth : 0
+            let availableWidth = geo.size.width - Self.horizontalPadding - Self.addButtonWidth - handleWidth
             let totalSpacing: CGFloat = tabCount > 1 ? CGFloat(tabCount - 1) : 0
             let equalTabStep: CGFloat = tabCount > 0
                 ? availableWidth / CGFloat(tabCount)
@@ -68,7 +69,9 @@ struct TabBarView: View {
 
             ZStack(alignment: .leading) {
                 HStack(spacing: 1) {
-                    dragHandle
+                    if tabBarConfig.showDragHandle {
+                        dragHandle
+                    }
                     ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
                         let isDragging = draggingIDs.contains(window.id)
 
@@ -134,7 +137,7 @@ struct TabBarView: View {
 
                 // Drop indicator line when another group is dragging tabs over this bar
                 if let dropIndex = group.dropIndicatorIndex {
-                    let xPos = Self.horizontalPadding / 2 + Self.dragHandleWidth + tabStep * CGFloat(dropIndex)
+                    let xPos = Self.horizontalPadding / 2 + handleWidth + tabStep * CGFloat(dropIndex)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.accentColor)
                         .frame(width: 2, height: 20)

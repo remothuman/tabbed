@@ -225,7 +225,9 @@ class TabBarPanel: NSPanel {
             return true
         }
         // Drag handle area (left side, after padding)
-        let dragHandleEnd = horizontalPad + TabBarView.dragHandleWidth
+        let showHandle = tabBarConfig?.showDragHandle ?? true
+        let handleWidth: CGFloat = showHandle ? TabBarView.dragHandleWidth : 0
+        let dragHandleEnd = horizontalPad + handleWidth
         if point.x < dragHandleEnd {
             return true
         }
@@ -238,7 +240,7 @@ class TabBarPanel: NSPanel {
         let tabCount = group?.windows.count ?? 0
         guard tabCount > 0 else { return true }
 
-        let availableWidth = panelWidth - (horizontalPad * 2) - TabBarView.addButtonWidth - TabBarView.dragHandleWidth
+        let availableWidth = panelWidth - (horizontalPad * 2) - TabBarView.addButtonWidth - handleWidth
         let isCompact = tabBarConfig?.style == .compact
 
         let tabContentWidth: CGFloat

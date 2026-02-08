@@ -11,27 +11,36 @@ class TabBarConfig: ObservableObject, Codable {
             if style != oldValue { save() }
         }
     }
+    @Published var showDragHandle: Bool {
+        didSet {
+            if showDragHandle != oldValue { save() }
+        }
+    }
 
     static let `default` = TabBarConfig(style: .compact)
 
-    init(style: TabBarStyle = .compact) {
+    init(style: TabBarStyle = .compact, showDragHandle: Bool = true) {
         self.style = style
+        self.showDragHandle = showDragHandle
     }
 
     // MARK: - Codable
 
     private enum CodingKeys: String, CodingKey {
         case style
+        case showDragHandle
     }
 
     required init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         style = try container.decodeIfPresent(TabBarStyle.self, forKey: .style) ?? .compact
+        showDragHandle = try container.decodeIfPresent(Bool.self, forKey: .showDragHandle) ?? true
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(style, forKey: .style)
+        try container.encode(showDragHandle, forKey: .showDragHandle)
     }
 
     // MARK: - Persistence
