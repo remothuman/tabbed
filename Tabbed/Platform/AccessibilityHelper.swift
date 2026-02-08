@@ -162,9 +162,24 @@ enum AccessibilityHelper {
     /// the group's stored element), or nil if the original was fine.
     @discardableResult
     static func raiseWindow(_ window: WindowInfo) -> AXUIElement? {
-        // Always activate the owning app so the window actually receives
-        // focus. Without this, kAXRaiseAction brings the window to front
-        // within its app but the app itself may stay in the background.
+        // Raise the target window BEFORE activating the app so the correct
+        // window is already in front when the app comes forward, avoiding a
+        // brief flash of whatever window the app had focused previously.
+
+        // Fast path: raise with the stored element
+        var freshElement: AXUIElement? = nil
+        if raise(window.element) != .success {
+            // The stored AXUIElement may be stale. Look up a fresh one by CGWindowID.
+            let allElements = windowElements(for: window.ownerPID)
+            if let match = allElements.first(where: { windowID(for: $0) == window.id }) {
+                freshElement = match
+            } else {
+                freshElement = window.element
+            }
+            raise(freshElement!)
+        }
+
+        // Now activate the app — the raised window is already in front.
         if let app = NSRunningApplication(processIdentifier: window.ownerPID) {
             if #available(macOS 14.0, *) {
                 app.activate()
@@ -173,20 +188,10 @@ enum AccessibilityHelper {
             }
         }
 
-        // Fast path: raise with the stored element
-        if raise(window.element) == .success { return nil }
-
-        // The stored AXUIElement may be stale. Look up a fresh one by CGWindowID.
-        let freshElement: AXUIElement
-        let allElements = windowElements(for: window.ownerPID)
-        if let match = allElements.first(where: { windowID(for: $0) == window.id }) {
-            freshElement = match
-        } else {
-            freshElement = window.element
+        if let fresh = freshElement, fresh !== window.element {
+            return fresh
         }
-
-        raise(freshElement)
-        return freshElement !== window.element ? freshElement : nil
+        return nil
     }
 
     // MARK: - Observer

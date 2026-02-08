@@ -181,14 +181,6 @@ extension AppDelegate {
         if !group.isCycling {
             group.recordFocus(windowID: window.id)
         }
-        if let app = NSRunningApplication(processIdentifier: window.ownerPID) {
-            if #available(macOS 14.0, *) {
-                app.activate()
-            } else {
-                app.activate(options: [])
-            }
-        }
-
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
 
