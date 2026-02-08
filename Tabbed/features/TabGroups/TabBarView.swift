@@ -22,6 +22,7 @@ struct TabBarView: View {
     static let horizontalPadding: CGFloat = 8
     static let addButtonWidth: CGFloat = 20
     static let maxCompactTabWidth: CGFloat = 240
+    static let dragHandleWidth: CGFloat = 16
 
     // Chrome/Firefox-style horizontal expand transition for new tabs
     private struct HorizontalScale: ViewModifier {
@@ -53,7 +54,7 @@ struct TabBarView: View {
         GeometryReader { geo in
             let tabCount = group.windows.count
             let isCompact = tabBarConfig.style == .compact
-            let availableWidth = geo.size.width - Self.horizontalPadding - Self.addButtonWidth
+            let availableWidth = geo.size.width - Self.horizontalPadding - Self.addButtonWidth - Self.dragHandleWidth
             let totalSpacing: CGFloat = tabCount > 1 ? CGFloat(tabCount - 1) : 0
             let equalTabStep: CGFloat = tabCount > 0
                 ? availableWidth / CGFloat(tabCount)
@@ -67,6 +68,7 @@ struct TabBarView: View {
 
             ZStack(alignment: .leading) {
                 HStack(spacing: 1) {
+                    dragHandle
                     ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
                         let isDragging = draggingIDs.contains(window.id)
 
@@ -132,7 +134,7 @@ struct TabBarView: View {
 
                 // Drop indicator line when another group is dragging tabs over this bar
                 if let dropIndex = group.dropIndicatorIndex {
-                    let xPos = Self.horizontalPadding / 2 + tabStep * CGFloat(dropIndex)
+                    let xPos = Self.horizontalPadding / 2 + Self.dragHandleWidth + tabStep * CGFloat(dropIndex)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.accentColor)
                         .frame(width: 2, height: 20)
@@ -377,6 +379,21 @@ struct TabBarView: View {
                 onCloseTabs(targets)
             }
         }
+    }
+
+    private var dragHandle: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<2, id: \.self) { _ in
+                VStack(spacing: 2) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Circle()
+                            .fill(Color.primary.opacity(0.1))
+                            .frame(width: 2.5, height: 2.5)
+                    }
+                }
+            }
+        }
+        .frame(width: Self.dragHandleWidth)
     }
 
     private var addButton: some View {
