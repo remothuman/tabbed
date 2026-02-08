@@ -1,5 +1,10 @@
 import SwiftUI
 
+private struct TabBarFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { value = nextValue() }
+}
+
 struct TabBarView: View {
     @ObservedObject var group: TabGroup
     var onSwitchTab: (Int) -> Void
@@ -21,6 +26,7 @@ struct TabBarView: View {
     @State private var lastClickedIndex: Int? = nil
     /// IDs being dragged (either the multi-selection or just the single dragged tab)
     @State private var draggingIDs: Set<CGWindowID> = []
+    @State private var tabBarFrame: CGRect = .zero
 
     var body: some View {
         GeometryReader { geo in
@@ -48,7 +54,7 @@ struct TabBarView: View {
                         )
                         .animation(isDragging ? nil : .easeInOut(duration: 0.15), value: targetIndex)
                         .gesture(
-                            DragGesture(minimumDistance: 5)
+                            DragGesture(minimumDistance: 5, coordinateSpace: .global)
                                 .onChanged { value in
                                     if draggingID == nil {
                                         draggingID = window.id
@@ -63,7 +69,8 @@ struct TabBarView: View {
                                     dragTranslation = value.translation.width
                                 }
                                 .onEnded { value in
-                                    if abs(value.translation.height) > 30 {
+                                    let endedOutsideBar = !tabBarFrame.contains(value.location)
+                                    if endedOutsideBar {
                                         handleDragDetach()
                                     } else {
                                         handleDragEnded(tabStep: tabStep)
@@ -77,6 +84,10 @@ struct TabBarView: View {
             .padding(.vertical, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(GeometryReader { proxy in
+            Color.clear.preference(key: TabBarFrameKey.self, value: proxy.frame(in: .global))
+        })
+        .onPreferenceChange(TabBarFrameKey.self) { tabBarFrame = $0 }
         .onChange(of: group.windows.count) { _ in
             // Clear stale selection when windows are externally added/removed
             let validIDs = Set(group.windows.map(\.id))
@@ -236,10 +247,10 @@ struct TabBarView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isActive
-                    ? Color.primary.opacity(0.1)
-                    : isSelected
-                        ? Color.accentColor.opacity(0.15)
+                .fill(isSelected
+                    ? Color.accentColor.opacity(0.15)
+                    : isActive
+                        ? Color.primary.opacity(0.1)
                         : Color.clear)
         )
         .contentShape(Rectangle())

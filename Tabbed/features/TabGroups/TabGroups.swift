@@ -373,8 +373,10 @@ extension AppDelegate {
     // MARK: - Multi-Tab Operations
 
     func releaseTabs(withIDs ids: Set<CGWindowID>, from group: TabGroup, panel: TabBarPanel) {
-        for id in ids {
-            guard let window = group.windows.first(where: { $0.id == id }) else { continue }
+        // Capture windows before removal so we can raise one afterward
+        let releasedWindows = group.windows.filter { ids.contains($0.id) }
+
+        for window in releasedWindows {
             windowObserver.stopObserving(window: window)
             expectedFrames.removeValue(forKey: window.id)
 
@@ -392,6 +394,11 @@ extension AppDelegate {
         }
 
         groupManager.releaseWindows(withIDs: ids, from: group)
+
+        // Raise the first released window so it becomes focused
+        if let first = releasedWindows.first {
+            _ = AccessibilityHelper.raiseWindow(first)
+        }
 
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
             handleGroupDissolution(group: group, panel: panel)
