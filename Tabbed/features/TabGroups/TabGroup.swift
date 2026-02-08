@@ -34,9 +34,16 @@ class TabGroup: Identifiable, ObservableObject {
         windows.contains { $0.id == windowID }
     }
 
-    func addWindow(_ window: WindowInfo) {
+    func addWindow(_ window: WindowInfo, at index: Int? = nil) {
         guard !contains(windowID: window.id) else { return }
-        windows.append(window)
+        if let index, index >= 0, index <= windows.count {
+            windows.insert(window, at: index)
+            if index <= activeIndex {
+                activeIndex += 1
+            }
+        } else {
+            windows.append(window)
+        }
         focusHistory.append(window.id)
     }
 

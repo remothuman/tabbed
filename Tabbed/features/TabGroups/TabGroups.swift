@@ -214,10 +214,14 @@ extension AppDelegate {
         globalMRU.removeAll { $0 == .window(window.id) }
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
-        groupManager.addWindow(window, to: group)
+
+        // If active tab is from the same app, insert right after it
+        let insertAfterActive = group.activeWindow.map { $0.bundleID == window.bundleID } ?? false
+        let insertionIndex = insertAfterActive ? group.activeIndex + 1 : nil
+        groupManager.addWindow(window, to: group, at: insertionIndex)
         windowObserver.observe(window: window)
 
-        let newIndex = group.windows.count - 1
+        let newIndex = group.windows.firstIndex(where: { $0.id == window.id }) ?? group.windows.count - 1
         group.switchTo(index: newIndex)
         lastActiveGroupID = group.id
         raiseAndUpdate(window, in: group)

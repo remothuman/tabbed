@@ -31,10 +31,10 @@ class GroupManager: ObservableObject {
         return group
     }
 
-    func addWindow(_ window: WindowInfo, to group: TabGroup) {
+    func addWindow(_ window: WindowInfo, to group: TabGroup, at index: Int? = nil) {
         guard groups.contains(where: { $0.id == group.id }) else { return }
         guard !isWindowGrouped(window.id) else { return }
-        group.addWindow(window)
+        group.addWindow(window, at: index)
         objectWillChange.send()
     }
 
