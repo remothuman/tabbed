@@ -315,10 +315,11 @@ struct TabBarView: View {
 
         // Phase 2: animate the residual to 0 in the next frame.
         // Only snapOffset changes — no ForEach reorder, no competing animations.
+        // Don't clear snapIDs here; it's a Set (not interpolatable) and would
+        // cause the offset to jump to 0 immediately. It gets cleared on next drag start.
         DispatchQueue.main.async {
             withAnimation(.easeOut(duration: 0.12)) {
                 snapOffset = 0
-                snapIDs = []
             }
         }
     }
