@@ -328,6 +328,14 @@ extension AppDelegate {
             return false
         }
 
+        // Reject windows on a different space than the capture group
+        if group.spaceID != 0,
+           let windowSpace = SpaceUtils.spaceID(for: window.id),
+           windowSpace != group.spaceID {
+            Logger.log("[AutoCapture] captureIfEligible[\(source)]: wrong space (\(windowSpace) != \(group.spaceID)) — \(window.appName): \(window.title)")
+            return false
+        }
+
         Logger.log("[AutoCapture] Capturing window \(window.id) (\(window.appName): \(window.title)) [\(source)]")
         setExpectedFrame(group.frame, for: [window.id])
         addWindow(window, to: group)

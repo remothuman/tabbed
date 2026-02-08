@@ -106,8 +106,7 @@ extension AppDelegate {
             if !groupManager.groups.contains(where: { $0.id == group.id }) {
                 handleGroupDissolution(group: group, panel: panel)
             } else if let newActive = group.activeWindow {
-                raiseAndUpdate(newActive, in: group)
-                panel.orderAbove(windowID: newActive.id)
+                bringTabToFront(newActive, in: group)
             }
             return
         }
@@ -237,8 +236,7 @@ extension AppDelegate {
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
             handleGroupDissolution(group: group, panel: panel)
         } else if let newActive = group.activeWindow {
-            raiseAndUpdate(newActive, in: group)
-            panel.orderAbove(windowID: newActive.id)
+            bringTabToFront(newActive, in: group)
         }
         evaluateAutoCapture()
     }
@@ -297,5 +295,46 @@ extension AppDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak panel] in
             panel?.orderAbove(windowID: windowID)
         }
+    }
+
+    // MARK: - Space Change Handler
+
+    func handleSpaceChanged() {
+        for group in groupManager.groups {
+            guard group.spaceID != 0 else { continue }
+            let spaceMap = SpaceUtils.spaceIDs(for: group.windows.map(\.id))
+            let strayIDs = group.windows.compactMap { window -> CGWindowID? in
+                guard let windowSpace = spaceMap[window.id],
+                      windowSpace != group.spaceID else { return nil }
+                return window.id
+            }
+            guard !strayIDs.isEmpty else { continue }
+            Logger.log("[SPACE] Ejecting \(strayIDs.count) stray windows from group \(group.id): \(strayIDs)")
+
+            guard let panel = tabBarPanels[group.id] else { continue }
+
+            for windowID in strayIDs {
+                guard let window = group.windows.first(where: { $0.id == windowID }) else { continue }
+                windowObserver.stopObserving(window: window)
+                expectedFrames.removeValue(forKey: window.id)
+
+                // Expand the ejected window to cover tab bar space
+                if let frame = AccessibilityHelper.getFrame(of: window.element) {
+                    let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
+                    let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
+                    AccessibilityHelper.setSize(of: window.element, to: expanded.size)
+                    AccessibilityHelper.setPosition(of: window.element, to: expanded.origin)
+                }
+            }
+
+            groupManager.releaseWindows(withIDs: Set(strayIDs), from: group)
+
+            if !groupManager.groups.contains(where: { $0.id == group.id }) {
+                handleGroupDissolution(group: group, panel: panel)
+            } else if let newActive = group.activeWindow {
+                bringTabToFront(newActive, in: group)
+            }
+        }
+        evaluateAutoCapture()
     }
 }

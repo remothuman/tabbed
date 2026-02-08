@@ -33,15 +33,12 @@ struct WindowPickerView: View {
     /// Other groups on the same Space as addingToGroup (for merge).
     private var mergeableGroups: [TabGroup] {
         guard let target = addingToGroup,
-              let targetWindowID = target.activeWindow?.id else { return [] }
-        let conn = CGSMainConnectionID()
-        let targetSpaces = CGSCopySpacesForWindows(conn, 0x7, [targetWindowID] as CFArray) as? [UInt64] ?? []
-        guard let targetSpace = targetSpaces.first else { return [] }
+              let targetWindowID = target.activeWindow?.id,
+              let targetSpace = SpaceUtils.spaceID(for: targetWindowID) else { return [] }
         return groupManager.groups.filter { group in
             guard group.id != target.id,
                   let windowID = group.activeWindow?.id else { return false }
-            let spaces = CGSCopySpacesForWindows(conn, 0x7, [windowID] as CFArray) as? [UInt64] ?? []
-            return spaces.first == targetSpace
+            return SpaceUtils.spaceID(for: windowID) == targetSpace
         }
     }
 

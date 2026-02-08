@@ -6,7 +6,11 @@ import SwiftUI
 extension AppDelegate {
 
     func focusWindow(_ window: WindowInfo) {
-        _ = AccessibilityHelper.raiseWindow(window)
+        if let freshElement = AccessibilityHelper.raiseWindow(window),
+           let group = groupManager.group(for: window.id),
+           let idx = group.windows.firstIndex(where: { $0.id == window.id }) {
+            group.windows[idx].element = freshElement
+        }
     }
 
     func showWindowPicker(addingTo group: TabGroup? = nil) {
@@ -73,10 +77,7 @@ extension AppDelegate {
 
         guard let group = setupGroup(with: windows, frame: windowFrame, squeezeDelta: squeezeDelta) else { return }
         if let activeWindow = group.activeWindow {
-            raiseAndUpdate(activeWindow, in: group)
-            if let panel = tabBarPanels[group.id] {
-                panel.orderAbove(windowID: activeWindow.id)
-            }
+            bringTabToFront(activeWindow, in: group)
         }
     }
 
@@ -87,7 +88,9 @@ extension AppDelegate {
         squeezeDelta: CGFloat,
         activeIndex: Int = 0
     ) -> TabGroup? {
-        guard let group = groupManager.createGroup(with: windows, frame: frame) else { return nil }
+        let spaceID = windows.first.flatMap { SpaceUtils.spaceID(for: $0.id) } ?? 0
+        guard let group = groupManager.createGroup(with: windows, frame: frame, spaceID: spaceID) else { return nil }
+        Logger.log("[SPACE] Created group \(group.id) on space \(spaceID)")
         group.tabBarSqueezeDelta = squeezeDelta
         group.switchTo(index: activeIndex)
 
@@ -188,26 +191,31 @@ extension AppDelegate {
         return group
     }
 
-    func raiseAndUpdate(_ window: WindowInfo, in group: TabGroup) {
+    /// Bring a tab to front: raise its window, activate its app, and order the
+    /// tab bar panel above it.  This is the single entry point for making a
+    /// grouped window visible — every tab switch, window addition, and
+    /// "show next tab after removal" path goes through here.
+    ///
+    /// Silently no-ops when the group is on a different Space, preventing
+    /// cross-space focus stealing.  For intentional cross-space switches
+    /// (e.g. QuickSwitcher), use `focusWindow(_:)` directly instead.
+    func bringTabToFront(_ window: WindowInfo, in group: TabGroup) {
+        guard isGroupOnCurrentSpace(group) else { return }
         if let freshElement = AccessibilityHelper.raiseWindow(window) {
             if let idx = group.windows.firstIndex(where: { $0.id == window.id }) {
                 group.windows[idx].element = freshElement
             }
         }
+        tabBarPanels[group.id]?.orderAbove(windowID: window.id)
     }
 
     /// Move the tab bar panel to the same Space as the given window, if they differ.
     func movePanelToWindowSpace(_ panel: TabBarPanel, windowID: CGWindowID) {
         guard panel.windowNumber > 0 else { return }
-        let conn = CGSMainConnectionID()
+        guard let targetSpace = SpaceUtils.spaceID(for: windowID) else { return }
         let panelWID = CGWindowID(panel.windowNumber)
-
-        let windowSpaces = CGSCopySpacesForWindows(conn, 0x7, [windowID] as CFArray) as? [UInt64] ?? []
-        guard let targetSpace = windowSpaces.first else { return }
-
-        let panelSpaces = CGSCopySpacesForWindows(conn, 0x7, [panelWID] as CFArray) as? [UInt64] ?? []
-        if panelSpaces.first == targetSpace { return }
-
+        guard SpaceUtils.spaceID(for: panelWID) != targetSpace else { return }
+        let conn = CGSMainConnectionID()
         CGSMoveWindowsToManagedSpace(conn, [panelWID] as CFArray, targetSpace)
     }
 
@@ -223,8 +231,7 @@ extension AppDelegate {
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
 
-        raiseAndUpdate(window, in: group)
-        panel.orderAbove(windowID: window.id)
+        bringTabToFront(window, in: group)
     }
 
     func releaseTab(at index: Int, from group: TabGroup, panel: TabBarPanel) {
@@ -273,17 +280,21 @@ extension AppDelegate {
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
             handleGroupDissolution(group: group, panel: panel)
         } else if let newActive = group.activeWindow {
-            raiseAndUpdate(newActive, in: group)
-            panel.orderAbove(windowID: newActive.id)
+            bringTabToFront(newActive, in: group)
         }
         evaluateAutoCapture()
     }
 
     func addWindow(_ window: WindowInfo, to group: TabGroup) {
+        if group.spaceID != 0,
+           let windowSpace = SpaceUtils.spaceID(for: window.id),
+           windowSpace != group.spaceID {
+            Logger.log("[SPACE] Rejected addWindow wid=\(window.id) (space \(windowSpace)) to group \(group.id) (space \(group.spaceID))")
+            return
+        }
         globalMRU.removeAll { $0 == .window(window.id) }
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
-
         // If active tab is from the same app, insert right after it
         let insertAfterActive = group.activeWindow.map { $0.bundleID == window.bundleID } ?? false
         let insertionIndex = insertAfterActive ? group.activeIndex + 1 : nil
@@ -293,10 +304,7 @@ extension AppDelegate {
         let newIndex = group.windows.firstIndex(where: { $0.id == window.id }) ?? group.windows.count - 1
         group.switchTo(index: newIndex)
         lastActiveGroupID = group.id
-        raiseAndUpdate(window, in: group)
-        if let panel = tabBarPanels[group.id] {
-            panel.orderAbove(windowID: window.id)
-        }
+        bringTabToFront(window, in: group)
         evaluateAutoCapture()
     }
 
@@ -391,6 +399,10 @@ extension AppDelegate {
 
     func mergeGroup(_ source: TabGroup, into target: TabGroup) {
         guard let sourcePanel = tabBarPanels[source.id] else { return }
+        if target.spaceID != 0, source.spaceID != 0, target.spaceID != source.spaceID {
+            Logger.log("[SPACE] Rejected merge: source space \(source.spaceID) != target space \(target.spaceID)")
+            return
+        }
         let windowsToMerge = source.windows
         guard !windowsToMerge.isEmpty else { return }
 
@@ -540,6 +552,11 @@ extension AppDelegate {
         guard let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
               let targetPanel = tabBarPanels[targetGroupID] else { return }
 
+        if targetGroup.spaceID != 0, sourceGroup.spaceID != 0, targetGroup.spaceID != sourceGroup.spaceID {
+            Logger.log("[SPACE] Rejected cross-panel drop: source space \(sourceGroup.spaceID) != target space \(targetGroup.spaceID)")
+            return
+        }
+
         Logger.log("[DRAG] Cross-panel drop: \(ids) from group \(sourceGroup.id) to group \(targetGroupID) at index \(insertionIndex)")
         targetGroup.dropIndicatorIndex = nil
 
@@ -558,8 +575,7 @@ extension AppDelegate {
         if !groupManager.groups.contains(where: { $0.id == sourceGroup.id }) {
             handleGroupDissolution(group: sourceGroup, panel: sourcePanel)
         } else if let newActive = sourceGroup.activeWindow {
-            raiseAndUpdate(newActive, in: sourceGroup)
-            sourcePanel.orderAbove(windowID: newActive.id)
+            bringTabToFront(newActive, in: sourceGroup)
         }
 
         // Add each window to target at insertion index
@@ -576,8 +592,7 @@ extension AppDelegate {
             targetGroup.switchTo(index: newIndex)
             lastActiveGroupID = targetGroup.id
             targetGroup.recordFocus(windowID: firstMoved.id)
-            raiseAndUpdate(firstMoved, in: targetGroup)
-            targetPanel.orderAbove(windowID: firstMoved.id)
+            bringTabToFront(firstMoved, in: targetGroup)
         }
 
         evaluateAutoCapture()
@@ -638,16 +653,12 @@ extension AppDelegate {
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
             handleGroupDissolution(group: group, panel: panel)
         } else if let newActive = group.activeWindow {
-            raiseAndUpdate(newActive, in: group)
-            panel.orderAbove(windowID: newActive.id)
+            bringTabToFront(newActive, in: group)
         }
 
         guard let newGroup = setupGroup(with: windowsToMove, frame: frame, squeezeDelta: squeezeDelta) else { return }
         if let activeWindow = newGroup.activeWindow {
-            raiseAndUpdate(activeWindow, in: newGroup)
-            if let newPanel = tabBarPanels[newGroup.id] {
-                newPanel.orderAbove(windowID: activeWindow.id)
-            }
+            bringTabToFront(activeWindow, in: newGroup)
         }
     }
 
@@ -664,8 +675,7 @@ extension AppDelegate {
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
             handleGroupDissolution(group: group, panel: panel)
         } else if let newActive = group.activeWindow {
-            raiseAndUpdate(newActive, in: group)
-            panel.orderAbove(windowID: newActive.id)
+            bringTabToFront(newActive, in: group)
         }
         evaluateAutoCapture()
     }
@@ -673,9 +683,11 @@ extension AppDelegate {
     @objc func handleAppTerminated(_ notification: Notification) {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         let pid = app.processIdentifier
+        Logger.log("[DEBUG] handleAppTerminated: app=\(app.localizedName ?? "?") pid=\(pid)")
 
         for group in groupManager.groups {
             let affectedWindows = group.windows.filter { $0.ownerPID == pid }
+            guard !affectedWindows.isEmpty else { continue }
             for window in affectedWindows {
                 globalMRU.removeAll { $0 == .window(window.id) }
                 expectedFrames.removeValue(forKey: window.id)
@@ -691,10 +703,8 @@ extension AppDelegate {
                     panel.close()
                     tabBarPanels.removeValue(forKey: group.id)
                 }
-            } else if let panel = tabBarPanels[group.id],
-                      let newActive = group.activeWindow {
-                raiseAndUpdate(newActive, in: group)
-                panel.orderAbove(windowID: newActive.id)
+            } else if let newActive = group.activeWindow {
+                bringTabToFront(newActive, in: group)
             }
         }
     }
