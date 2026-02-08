@@ -6,7 +6,11 @@ import SwiftUI
 extension AppDelegate {
 
     func focusWindow(_ window: WindowInfo) {
-        _ = AccessibilityHelper.raiseWindow(window)
+        if let freshElement = AccessibilityHelper.raiseWindow(window),
+           let group = groupManager.group(for: window.id),
+           let idx = group.windows.firstIndex(where: { $0.id == window.id }) {
+            group.windows[idx].element = freshElement
+        }
     }
 
     func showWindowPicker(addingTo group: TabGroup? = nil) {
