@@ -4,6 +4,7 @@ struct MenuBarView: View {
     @ObservedObject var groupManager: GroupManager
     @ObservedObject var sessionState: SessionState
 
+    var shortcutConfig: ShortcutConfig
     var onNewGroup: () -> Void
     var onAllInSpace: () -> Void
     var onRestoreSession: () -> Void
@@ -24,11 +25,11 @@ struct MenuBarView: View {
                 groupList
             }
 
-            menuItem("New Group", systemImage: "plus") {
+            menuItem("New Group", systemImage: "plus", shortcutHint: shortcutConfig.newTab.displayString) {
                 onNewGroup()
             }
 
-            menuItem("All in Space", systemImage: "rectangle.stack.fill") {
+            menuItem("All in Space", systemImage: "rectangle.stack.fill", shortcutHint: shortcutConfig.groupAllInSpace.displayString) {
                 onAllInSpace()
             }
 
@@ -41,7 +42,7 @@ struct MenuBarView: View {
             Divider()
                 .padding(.vertical, 4)
 
-            menuItem("Settings…", systemImage: "gear") {
+            menuItem("Settings…", systemImage: "gear", shortcutHint: "⌘,") {
                 onSettings()
             }
 
@@ -68,8 +69,8 @@ struct MenuBarView: View {
         }
     }
 
-    private func menuItem(_ title: String, systemImage: String? = nil, action: @escaping () -> Void) -> some View {
-        MenuItemButton(title: title, systemImage: systemImage, action: action)
+    private func menuItem(_ title: String, systemImage: String? = nil, shortcutHint: String? = nil, action: @escaping () -> Void) -> some View {
+        MenuItemButton(title: title, systemImage: systemImage, shortcutHint: shortcutHint, action: action)
     }
 
     private func groupRow(_ group: TabGroup) -> some View {
@@ -131,6 +132,7 @@ struct MenuBarView: View {
 private struct MenuItemButton: View {
     let title: String
     var systemImage: String?
+    var shortcutHint: String?
     let action: () -> Void
     @State private var isHovered = false
 
@@ -143,6 +145,11 @@ private struct MenuItemButton: View {
                 }
                 Text(title)
                 Spacer()
+                if let shortcutHint {
+                    Text(shortcutHint)
+                        .font(.system(.callout, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

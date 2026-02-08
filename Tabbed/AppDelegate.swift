@@ -192,6 +192,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menuBarView = MenuBarView(
             groupManager: groupManager,
             sessionState: sessionState,
+            shortcutConfig: hotkeyManager?.config ?? .default,
             onNewGroup: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.showWindowPicker()
