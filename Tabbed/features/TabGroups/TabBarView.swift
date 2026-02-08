@@ -18,6 +18,7 @@ struct TabBarView: View {
     var onCrossPanelDrop: (Set<CGWindowID>, UUID, Int) -> Void
     var onDragOverPanels: (NSPoint) -> CrossPanelDropTarget?
     var onDragEnded: () -> Void
+    var onTooltipHover: ((_ title: String?, _ tabMidX: CGFloat) -> Void)?
 
     static let horizontalPadding: CGFloat = 8
     static let addButtonWidth: CGFloat = 20
@@ -77,7 +78,10 @@ struct TabBarView: View {
                     ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
                         let isDragging = draggingIDs.contains(window.id)
 
-                        tabItem(for: window, at: index, compactWidth: isCompact ? compactTabWidth : nil)
+                        let tabWidth = isCompact ? compactTabWidth : equalTabStep
+                        let tabMidX = leadingPad + handleWidth + tabStep * CGFloat(index) + tabWidth / 2
+
+                        tabItem(for: window, at: index, compactWidth: isCompact ? compactTabWidth : nil, tabWidth: tabWidth, tabMidX: tabMidX)
                             .offset(x: isDragging
                                 ? dragTranslation
                                 : shiftOffset(for: index, targetIndex: targetIndex, tabStep: tabStep))
@@ -277,18 +281,17 @@ struct TabBarView: View {
 
         let target = computeTargetIndex(tabStep: tabStep) ?? dragStartIndex
 
-        if draggingIDs.count > 1 {
-            // Multi-tab drag: target is the visual position the anchor hovers over.
-            // Pass directly — moveTabs treats it as the desired final position (clamped).
-            withAnimation(.easeOut(duration: 0.15)) {
+        // Suppress all animations — tabs are already visually in position from
+        // the drag offsets, so the model reorder + state reset must be instant.
+        var t = Transaction()
+        t.disablesAnimations = true
+        withTransaction(t) {
+            if draggingIDs.count > 1 {
                 group.moveTabs(withIDs: draggingIDs, toIndex: target)
                 resetDragState()
-            }
-            selectedIDs = []
-        } else {
-            // Single-tab drag: existing behavior
-            let sourceIndex = group.windows.firstIndex(where: { $0.id == draggingID! })
-            withAnimation(.easeOut(duration: 0.15)) {
+                selectedIDs = []
+            } else {
+                let sourceIndex = group.windows.firstIndex(where: { $0.id == draggingID! })
                 if let sourceIndex, sourceIndex != target {
                     group.moveTab(from: sourceIndex, to: Self.insertionIndex(from: sourceIndex, to: target))
                 }
@@ -316,8 +319,19 @@ struct TabBarView: View {
 
     // MARK: - Tab Item
 
+    /// Whether a title would be truncated at the given tab width.
+    /// Accounts for icon (16), spacing (6), horizontal padding (8×2), and close button on hover (16).
+    static func isTitleTruncated(title: String, tabWidth: CGFloat) -> Bool {
+        guard !title.isEmpty else { return false }
+        let chrome: CGFloat = 8 + 16 + 6 + 8 + 16 // left pad + icon + spacing + right pad + close button
+        let availableTextWidth = tabWidth - chrome
+        guard availableTextWidth > 0 else { return true }
+        let textSize = (title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 12)])
+        return textSize.width > availableTextWidth
+    }
+
     @ViewBuilder
-    private func tabItem(for window: WindowInfo, at index: Int, compactWidth: CGFloat? = nil) -> some View {
+    private func tabItem(for window: WindowInfo, at index: Int, compactWidth: CGFloat? = nil, tabWidth: CGFloat = 0, tabMidX: CGFloat = 0) -> some View {
         let isActive = index == group.activeIndex
         let isHovered = hoveredWindowID == window.id && draggingID == nil
         let isSelected = selectedIDs.contains(window.id)
@@ -368,6 +382,12 @@ struct TabBarView: View {
         }
         .onHover { hovering in
             hoveredWindowID = hovering ? window.id : nil
+            let title = window.title.isEmpty ? window.appName : window.title
+            if hovering && Self.isTitleTruncated(title: title, tabWidth: tabWidth) {
+                onTooltipHover?(title, tabMidX)
+            } else {
+                onTooltipHover?(nil, 0)
+            }
         }
         .contextMenu {
             let targets = contextTargets(for: window)

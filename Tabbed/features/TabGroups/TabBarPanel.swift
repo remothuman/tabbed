@@ -21,6 +21,11 @@ class TabBarPanel: NSPanel {
     /// Whether we've decided this gesture is a tab drag (not a bar drag).
     private var isTabDrag = false
 
+    // MARK: - Tooltip
+
+    private lazy var tooltipPanel = TabTooltipPanel()
+    private var tooltipTimer: Timer?
+
     init() {
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: Self.tabBarHeight),
@@ -80,7 +85,10 @@ class TabBarPanel: NSPanel {
             onCloseTabs: onCloseTabs,
             onCrossPanelDrop: onCrossPanelDrop,
             onDragOverPanels: onDragOverPanels,
-            onDragEnded: onDragEnded
+            onDragEnded: onDragEnded,
+            onTooltipHover: { [weak self] title, tabMidX in
+                self?.handleTooltipHover(title: title, tabMidX: tabMidX)
+            }
         )
         // Remove previous hosting view if setContent is called again
         visualEffectView.subviews.forEach { $0.removeFromSuperview() }
@@ -125,11 +133,41 @@ class TabBarPanel: NSPanel {
         orderAbove(windowID: windowID)
     }
 
+    override func orderOut(_ sender: Any?) {
+        dismissTooltip()
+        super.orderOut(sender)
+    }
+
+    // MARK: - Tooltip
+
+    private func handleTooltipHover(title: String?, tabMidX: CGFloat) {
+        tooltipTimer?.invalidate()
+        tooltipTimer = nil
+
+        guard let title else {
+            tooltipPanel.dismiss()
+            return
+        }
+
+        let screenTabMidX = frame.origin.x + tabMidX
+        tooltipTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.tooltipPanel.show(title: title, belowPanelFrame: self.frame, tabMidX: screenTabMidX)
+        }
+    }
+
+    func dismissTooltip() {
+        tooltipTimer?.invalidate()
+        tooltipTimer = nil
+        tooltipPanel.dismiss()
+    }
+
     // MARK: - Mouse Event Handling
 
     override func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
+            dismissTooltip()
             if event.clickCount == 2 {
                 onBarDoubleClicked?()
                 return
