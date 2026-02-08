@@ -1,12 +1,22 @@
+TODO: hyper ` icon display should show target (most recently active) app on top, (order icons by hyper tab order), hyper tab (or correct arrow keys) switches within it change the order, dont just display one app but change the front showing app
+
+
+
+
 - maybe: make height 24 instead of 28 to match menu bar on my m1 mac air (remove from padding)
     - prompt: make the tab bar height 24 instead of 28: change tabBarHeight in TabBarPanel.swift to 24, change tab item .padding(.vertical, 4) to .padding(.vertical, 3) in TabBarView.swift, and change the outer HStack .padding(.vertical, 2) to .padding(.top, 1) .padding(.bottom, 1)  
 
+- disbanding window from menubar shouldnt close menubar
 
 - simplify session restore config options maybe
 
-- switcher arrow keys
-
 - close window functionality optional, also have close or disband in menubar prob
+
+hyper tab should allow you to do shift + hyper + tab to go backwards, if users keyboard already has shift, then it should work without shift. this is only listened to if we are already in hyper tab view. wait. hyper includes shift, oh no
+    should hyper be like f18 or something instead?
+
+switcher:
+    - show more than 4
 
 BUGS:
     - signal app specifically (most apps dont but others might) pick up control + tab key shortcut even though im pressing hyper tab
@@ -22,10 +32,17 @@ BUGS:
     - session restore is having wrong tab ordering, shows wrong tab as active
     
     - quiting new tab adder with esc (or any way) should refocus the current tab w/out requiring clickation
+    
+    - fullscreen adjustment stopped working out of nowhere again
 
 - option for quick switcher keys to overwrite command tab and command ` (by windowgroup > by app)
 
 - option to make tabs have max width, and left aligned instead of justified
+
+- menubar clicking window should navigate to that window
+
+- setting to not show the tab bar if height of window is full (still useful via switcher)
+    - also option to never show tab bar?
 
 - freeing  window focuses it, not the next active tabs
 - replace x button (maybe - button) since it frees and doesnt close, maybe config to close window
