@@ -142,6 +142,20 @@ struct TabBarView: View {
                         .animation(.easeInOut(duration: 0.1), value: dropIndex)
                 }
             }
+            .contentShape(Rectangle())
+            .contextMenu {
+                Button("Ungroup") {
+                    let allIDs = Set(group.windows.map(\.id))
+                    selectedIDs = []
+                    onReleaseTabs(allIDs)
+                }
+                Divider()
+                Button("Close All Windows") {
+                    let allIDs = Set(group.windows.map(\.id))
+                    selectedIDs = []
+                    onCloseTabs(allIDs)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onChange(of: group.windows.count) { _ in
