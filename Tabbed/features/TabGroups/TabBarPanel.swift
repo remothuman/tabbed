@@ -17,6 +17,8 @@ class TabBarPanel: NSPanel {
 
     private var barDragStartMouse: NSPoint?
     private var barDragStartPanelOrigin: NSPoint?
+    /// The mouseDown location in panel-local coordinates, used for background hit test.
+    private var mouseDownLocalPoint: NSPoint?
     private var isBarDragging = false
     /// Whether we've decided this gesture is a tab drag (not a bar drag).
     private var isTabDrag = false
@@ -185,6 +187,7 @@ class TabBarPanel: NSPanel {
             }
             barDragStartMouse = NSEvent.mouseLocation
             barDragStartPanelOrigin = self.frame.origin
+            mouseDownLocalPoint = event.locationInWindow
             isBarDragging = false
             isTabDrag = false
             super.sendEvent(event)
@@ -224,7 +227,9 @@ class TabBarPanel: NSPanel {
             }
 
             // Decide: did the mouseDown land on background or on a tab?
-            let localPoint = event.locationInWindow
+            // Use the original mouseDown location, not the current drag position,
+            // so that 3+ px of mouse movement doesn't shift the test point off the tab.
+            let localPoint = mouseDownLocalPoint ?? event.locationInWindow
             if isOnBackground(localPoint) {
                 isBarDragging = true
                 var f = self.frame
@@ -244,6 +249,7 @@ class TabBarPanel: NSPanel {
             }
             barDragStartMouse = nil
             barDragStartPanelOrigin = nil
+            mouseDownLocalPoint = nil
             isBarDragging = false
             isTabDrag = false
             // Don't pass mouseUp to SwiftUI after a bar drag — otherwise
@@ -263,25 +269,23 @@ class TabBarPanel: NSPanel {
         let panelWidth = frame.width
         let panelHeight = frame.height
         let verticalPad: CGFloat = 2
-        let horizontalPad: CGFloat = 4
+        let showHandle = tabBarConfig?.showDragHandle ?? true
+        // Match SwiftUI layout: leading pad is 4 with handle, 2 without
+        let leadingPad: CGFloat = showHandle ? 4 : 2
+        let trailingPad: CGFloat = 4
 
         // Top/bottom padding is always background
         if point.y < verticalPad || point.y > panelHeight - verticalPad {
             return true
         }
-        // Left padding
-        if point.x < horizontalPad {
-            return true
-        }
-        // Drag handle area (left side, after padding)
-        let showHandle = tabBarConfig?.showDragHandle ?? true
+        // Left padding + drag handle area
         let handleWidth: CGFloat = showHandle ? TabBarView.dragHandleWidth : 0
-        let dragHandleEnd = horizontalPad + handleWidth
-        if point.x < dragHandleEnd {
+        let tabContentStartX = leadingPad + handleWidth
+        if point.x < tabContentStartX {
             return true
         }
         // Right padding
-        if point.x > panelWidth - horizontalPad {
+        if point.x > panelWidth - trailingPad {
             return true
         }
 
@@ -289,7 +293,7 @@ class TabBarPanel: NSPanel {
         let tabCount = group?.windows.count ?? 0
         guard tabCount > 0 else { return true }
 
-        let availableWidth = panelWidth - (horizontalPad * 2) - TabBarView.addButtonWidth - handleWidth
+        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - handleWidth
         let isCompact = tabBarConfig?.style == .compact
 
         let tabContentWidth: CGFloat
@@ -304,7 +308,7 @@ class TabBarPanel: NSPanel {
             tabContentWidth = availableWidth
         }
 
-        let tabContentEndX = dragHandleEnd + tabContentWidth
+        let tabContentEndX = tabContentStartX + tabContentWidth
 
         // After tab content = background (+ button still clickable via mouseDown passthrough)
         if point.x > tabContentEndX {

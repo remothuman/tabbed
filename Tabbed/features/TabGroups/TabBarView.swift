@@ -100,7 +100,7 @@ struct TabBarView: View {
                             .animation(isDragging ? nil : .easeOut(duration: 0.15), value: targetIndex)
                             .transition(Self.tabExpandTransition)
                             .gesture(
-                                DragGesture(minimumDistance: 5)
+                                DragGesture(minimumDistance: 3)
                                     .onChanged { value in
                                         if draggingID == nil {
                                             draggingID = window.id
