@@ -205,7 +205,11 @@ extension AppDelegate {
             }
         }
 
-        movePanelToWindowSpace(panel, windowID: windowID)
+        // Don't drag the group's panel to a different space — the window is about
+        // to be ejected by the space-change handler and will get its own group.
+        if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {
+            movePanelToWindowSpace(panel, windowID: windowID)
+        }
         panel.orderAbove(windowID: windowID)
         // Re-order after a delay — when the OS raises a window (dock click, Cmd-Tab,
         // third-party switcher), its reordering may finish after our orderAbove call.
@@ -304,7 +308,9 @@ extension AppDelegate {
             }
         }
 
-        movePanelToWindowSpace(panel, windowID: windowID)
+        if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {
+            movePanelToWindowSpace(panel, windowID: windowID)
+        }
         panel.orderAbove(windowID: windowID)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak panel] in
             panel?.orderAbove(windowID: windowID)
@@ -313,10 +319,46 @@ extension AppDelegate {
 
     // MARK: - Space Change Handler
 
+    /// Debounce space-change handling so the animation settles before we query window spaces.
+    func scheduleSpaceChangeCheck() {
+        spaceChangeWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.handleSpaceChanged()
+        }
+        spaceChangeWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
     func handleSpaceChanged() {
+        struct StrayInfo {
+            let window: WindowInfo
+            let frame: CGRect
+            let squeezeDelta: CGFloat
+        }
+        var straysToRegroup: [StrayInfo] = []
+
         for group in groupManager.groups {
             guard group.spaceID != 0 else { continue }
             let spaceMap = SpaceUtils.spaceIDs(for: group.windows.map(\.id))
+
+            // If all windows report the same new space, the space ID was reassigned
+            // (or a single-tab group was moved). Update the stored ID, don't eject.
+            let reportedSpaces = Set(spaceMap.values)
+            if reportedSpaces.count == 1,
+               let newSpace = reportedSpaces.first,
+               newSpace != group.spaceID,
+               spaceMap.count == group.windows.count {
+                Logger.log("[SPACE] Updating group \(group.id) spaceID \(group.spaceID) → \(newSpace) (all windows moved together)")
+                group.spaceID = newSpace
+                if let panel = tabBarPanels[group.id], let activeWindow = group.activeWindow {
+                    movePanelToWindowSpace(panel, windowID: activeWindow.id)
+                }
+                continue
+            }
+
+            // Find windows whose space differs from the group's space.
+            // Windows where the query returned nil are NOT marked stray — the window
+            // server may not have settled yet, or the window is mid-transition.
             let strayIDs = group.windows.compactMap { window -> CGWindowID? in
                 guard let windowSpace = spaceMap[window.id],
                       windowSpace != group.spaceID else { return nil }
@@ -327,18 +369,20 @@ extension AppDelegate {
 
             guard let panel = tabBarPanels[group.id] else { continue }
 
+            let groupFrame = group.frame
+            let groupSqueezeDelta = group.tabBarSqueezeDelta
+
             for windowID in strayIDs {
                 guard let window = group.windows.first(where: { $0.id == windowID }) else { continue }
                 windowObserver.stopObserving(window: window)
                 expectedFrames.removeValue(forKey: window.id)
 
-                // Expand the ejected window to cover tab bar space
-                if let frame = AccessibilityHelper.getFrame(of: window.element) {
-                    let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
-                    let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
-                    AccessibilityHelper.setSize(of: window.element, to: expanded.size)
-                    AccessibilityHelper.setPosition(of: window.element, to: expanded.origin)
-                }
+                // Window will get its own tab bar — keep the squeezed frame
+                straysToRegroup.append(StrayInfo(
+                    window: window,
+                    frame: groupFrame,
+                    squeezeDelta: groupSqueezeDelta
+                ))
             }
 
             groupManager.releaseWindows(withIDs: Set(strayIDs), from: group)
@@ -346,9 +390,19 @@ extension AppDelegate {
             if !groupManager.groups.contains(where: { $0.id == group.id }) {
                 handleGroupDissolution(group: group, panel: panel)
             } else if let newActive = group.activeWindow {
+                // Ensure the panel is on the group's space — a focus event that
+                // fired before this handler may have dragged it to the stray's space.
+                movePanelToWindowSpace(panel, windowID: newActive.id)
                 bringTabToFront(newActive, in: group)
             }
         }
+
+        // Create new single-tab groups for ejected windows on their new space
+        for stray in straysToRegroup {
+            Logger.log("[SPACE] Creating solo group for ejected window \(stray.window.id)")
+            setupGroup(with: [stray.window], frame: stray.frame, squeezeDelta: stray.squeezeDelta)
+        }
+
         evaluateAutoCapture()
     }
 }

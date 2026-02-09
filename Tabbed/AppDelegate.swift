@@ -37,6 +37,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var barDraggingGroupID: UUID?
     /// Group frame at bar drag start, for absolute positioning.
     var barDragInitialFrame: CGRect?
+    /// Debounce token for space-change handling — lets the animation settle before querying.
+    var spaceChangeWorkItem: DispatchWorkItem?
 
     var isCycleCooldownActive: Bool {
         cycleEndTime.map { Date().timeIntervalSince($0) < Self.cycleCooldownDuration } ?? false
@@ -107,7 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.handleSpaceChanged()
+            self?.scheduleSpaceChangeCheck()
         }
 
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
