@@ -110,6 +110,7 @@ extension AppDelegate {
             } else if let newActive = group.activeWindow {
                 bringTabToFront(newActive, in: group)
             }
+            evaluateAutoCapture()
             return
         }
 

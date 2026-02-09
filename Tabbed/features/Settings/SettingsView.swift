@@ -6,7 +6,7 @@ enum SettingsTab: Int {
 
     var contentHeight: CGFloat {
         switch self {
-        case .general:   return 260
+        case .general:   return 340
         case .tabBar:    return 200
         case .shortcuts: return 520
         case .switcher:  return 350
@@ -66,7 +66,7 @@ struct SettingsView: View {
         .onChange(of: sessionConfig.restoreMode) { _ in
             onSessionConfigChanged(sessionConfig)
         }
-        .onChange(of: sessionConfig.autoCaptureEnabled) { _ in
+        .onChange(of: sessionConfig.autoCaptureMode) { _ in
             onSessionConfigChanged(sessionConfig)
         }
         .onChange(of: switcherConfig.globalStyle) { _ in
@@ -143,16 +143,27 @@ struct SettingsView: View {
 
             Divider()
 
-            Toggle(isOn: $sessionConfig.autoCaptureEnabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Capture new windows when maximized")
-                    Text("When a group fills the screen and owns all visible windows, new windows auto-join.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            Text("Capture New Windows")
+                .font(.headline)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+
+            Picker("Mode", selection: $sessionConfig.autoCaptureMode) {
+                Text("Never").tag(AutoCaptureMode.never)
+                Text("Always").tag(AutoCaptureMode.always)
+                Text("When Maximized").tag(AutoCaptureMode.whenMaximized)
+                Text("When Only Group").tag(AutoCaptureMode.whenOnly)
             }
+            .pickerStyle(.segmented)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+
+            Text(autoCaptureModeDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
 
             Spacer()
         }
@@ -335,6 +346,19 @@ struct SettingsView: View {
             return "Large icons in a horizontal row, like macOS Cmd+Tab."
         case .titles:
             return "Vertical list with app name, window title, and window count."
+        }
+    }
+
+    private var autoCaptureModeDescription: String {
+        switch sessionConfig.autoCaptureMode {
+        case .never:
+            return "New windows are never automatically added to groups."
+        case .always:
+            return "New windows join the most recently used group."
+        case .whenMaximized:
+            return "New windows join a group when it fills the screen."
+        case .whenOnly:
+            return "New windows join a group when it's the only one in the space."
         }
     }
 

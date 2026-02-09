@@ -1,4 +1,6 @@
 ## Next:
+- drag window conflicts with drag out tabs
+
 - fullscreen restoration
 - display title on hover tab (preview to hard) IF the tabs are shrunk enough
 - new tab to the right (right click on tab)

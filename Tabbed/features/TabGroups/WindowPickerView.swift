@@ -4,6 +4,7 @@ struct WindowPickerView: View {
     @ObservedObject var windowManager: WindowManager
     @ObservedObject var groupManager: GroupManager
     let onCreateGroup: ([WindowInfo]) -> Void
+    let onTabAllInSpace: () -> Void
     let onAddToGroup: (WindowInfo) -> Void
     let onMergeGroup: (TabGroup) -> Void
     let onDismiss: () -> Void
@@ -80,11 +81,8 @@ struct WindowPickerView: View {
             if addingToGroup != nil {
                 onAddToGroup(window)
             } else {
-                if selectedIDs.contains(window.id) {
-                    selectedIDs.remove(window.id)
-                } else {
-                    selectedIDs.insert(window.id)
-                }
+                // Create a group with just this window
+                onCreateGroup([window])
             }
         } else if addingToGroup != nil {
             let groupIndex = focusedIndex - ungrouped.count
@@ -325,10 +323,14 @@ struct WindowPickerView: View {
     private var footer: some View {
         if addingToGroup == nil {
             HStack {
-                Button("Add All in Space") {
+                Button("Group All in Space") {
                     let allUngrouped = windowManager.availableWindows.filter { !groupManager.isWindowGrouped($0.id) }
                     guard !allUngrouped.isEmpty else { return }
                     onCreateGroup(allUngrouped)
+                }
+                .disabled(windowManager.availableWindows.filter { !groupManager.isWindowGrouped($0.id) }.isEmpty)
+                Button("Tab All in Space") {
+                    onTabAllInSpace()
                 }
                 .disabled(windowManager.availableWindows.filter { !groupManager.isWindowGrouped($0.id) }.isEmpty)
                 Spacer()

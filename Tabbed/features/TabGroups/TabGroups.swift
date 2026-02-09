@@ -24,6 +24,10 @@ extension AppDelegate {
                 self?.createGroup(with: windows)
                 self?.dismissWindowPicker()
             },
+            onTabAllInSpace: { [weak self] in
+                self?.tabAllInSpace()
+                self?.dismissWindowPicker()
+            },
             onAddToGroup: { [weak self] window in
                 guard let group = group else { return }
                 self?.addWindow(window, to: group)
@@ -63,6 +67,14 @@ extension AppDelegate {
         let ungrouped = allWindows.filter { !groupManager.isWindowGrouped($0.id) }
         guard !ungrouped.isEmpty else { return }
         createGroup(with: ungrouped)
+    }
+
+    func tabAllInSpace() {
+        let allWindows = WindowDiscovery.currentSpace()
+        let ungrouped = allWindows.filter { !groupManager.isWindowGrouped($0.id) }
+        for window in ungrouped {
+            createGroup(with: [window])
+        }
     }
 
     func createGroup(with windows: [WindowInfo]) {
@@ -833,7 +845,15 @@ extension AppDelegate {
                 if let survivor = group.windows.first, survivor.ownerPID != pid {
                     handleGroupDissolution(group: group, panel: panel)
                 } else {
+                    // All windows belonged to the terminated app — no survivor
+                    // to expand, but still need full state cleanup.
+                    if barDraggingGroupID == group.id { barDraggingGroupID = nil }
+                    if autoCaptureGroup === group { deactivateAutoCapture() }
+                    if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+                    globalMRU.removeAll { $0 == .group(group.id) }
                     if cyclingGroup === group { cyclingGroup = nil }
+                    resyncWorkItems[group.id]?.cancel()
+                    resyncWorkItems.removeValue(forKey: group.id)
                     panel.close()
                     tabBarPanels.removeValue(forKey: group.id)
                 }
@@ -841,5 +861,6 @@ extension AppDelegate {
                 bringTabToFront(newActive, in: group)
             }
         }
+        evaluateAutoCapture()
     }
 }
