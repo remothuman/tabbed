@@ -13,7 +13,7 @@ extension AppDelegate {
         }
     }
 
-    func showWindowPicker(addingTo group: TabGroup? = nil) {
+    func showWindowPicker(addingTo group: TabGroup? = nil, insertAt: Int? = nil) {
         dismissWindowPicker()
         windowManager.refreshWindowList()
 
@@ -30,7 +30,7 @@ extension AppDelegate {
             },
             onAddToGroup: { [weak self] window in
                 guard let group = group else { return }
-                self?.addWindow(window, to: group)
+                self?.addWindow(window, to: group, at: insertAt)
                 self?.dismissWindowPicker()
             },
             onMergeGroup: { [weak self] sourceGroup in
@@ -130,6 +130,9 @@ extension AppDelegate {
             },
             onAddWindow: { [weak self] in
                 self?.showWindowPicker(addingTo: group)
+            },
+            onAddWindowAfterTab: { [weak self] index in
+                self?.showWindowPicker(addingTo: group, insertAt: index + 1)
             },
             onReleaseTabs: { [weak self, weak panel] ids in
                 guard let panel else { return }
@@ -324,7 +327,7 @@ extension AppDelegate {
         evaluateAutoCapture()
     }
 
-    func addWindow(_ window: WindowInfo, to group: TabGroup, afterActive: Bool = false) {
+    func addWindow(_ window: WindowInfo, to group: TabGroup, afterActive: Bool = false, at explicitIndex: Int? = nil) {
         if group.spaceID != 0,
            let windowSpace = SpaceUtils.spaceID(for: window.id),
            windowSpace != group.spaceID {
@@ -334,9 +337,14 @@ extension AppDelegate {
         globalMRU.removeAll { $0 == .window(window.id) }
         setExpectedFrame(group.frame, for: [window.id])
         AccessibilityHelper.setFrame(of: window.element, to: group.frame)
-        // Insert right after active tab if forced (auto-capture) or same app
-        let insertAfterActive = afterActive || (group.activeWindow.map { $0.bundleID == window.bundleID } ?? false)
-        let insertionIndex = insertAfterActive ? group.activeIndex + 1 : nil
+        // Use explicit index if provided, otherwise insert after active for same-app or auto-capture
+        let insertionIndex: Int?
+        if let explicitIndex {
+            insertionIndex = explicitIndex
+        } else {
+            let insertAfterActive = afterActive || (group.activeWindow.map { $0.bundleID == window.bundleID } ?? false)
+            insertionIndex = insertAfterActive ? group.activeIndex + 1 : nil
+        }
         groupManager.addWindow(window, to: group, at: insertionIndex)
         windowObserver.observe(window: window)
 

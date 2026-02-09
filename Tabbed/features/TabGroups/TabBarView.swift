@@ -12,6 +12,7 @@ struct TabBarView: View {
     var onReleaseTab: (Int) -> Void
     var onCloseTab: (Int) -> Void
     var onAddWindow: () -> Void
+    var onAddWindowAfterTab: (Int) -> Void
     var onReleaseTabs: (Set<CGWindowID>) -> Void
     var onMoveToNewGroup: (Set<CGWindowID>) -> Void
     var onCloseTabs: (Set<CGWindowID>) -> Void
@@ -440,6 +441,10 @@ struct TabBarView: View {
         }
         .contextMenu {
             let targets = contextTargets(for: window)
+            Button("New Tab to the Right") {
+                onAddWindowAfterTab(index)
+            }
+            Divider()
             Button("Release from Group") {
                 selectedIDs = []
                 onReleaseTabs(targets)
