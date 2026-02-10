@@ -371,10 +371,41 @@ extension AppDelegate {
 
         guard !groupManager.isWindowGrouped(window.id) else { return false }
 
-        if let size = AccessibilityHelper.getSize(of: element),
-           size.width < 200 || size.height < 150 {
-            Logger.log("[AutoCapture] captureIfEligible[\(source)]: too small \(size) — \(window.appName): \(window.title)")
+        // --- Modal / popup / transient window detection ---
+        let subrole = AccessibilityHelper.getSubrole(of: element)
+        let isModal = AccessibilityHelper.isModal(element)
+        let size = AccessibilityHelper.getSize(of: element)
+        let cgsConn = CGSMainConnectionID()
+        var rawLevel: Int32 = 0
+        let hasLevel = CGSGetWindowLevel(cgsConn, window.id, &rawLevel) == 0
+        let windowLevel = hasLevel ? Int(rawLevel) : nil
+
+        Logger.log("[AutoCapture] captureIfEligible[\(source)]: \(window.appName): \(window.title) — subrole=\(subrole ?? "nil") modal=\(isModal) level=\(windowLevel.map(String.init) ?? "unknown") size=\(size.map { "\(Int($0.width))x\(Int($0.height))" } ?? "unknown")")
+
+        // Signal 1: AX attributes — definitive modal indicators
+        if subrole == "AXSheet" || subrole == "AXSystemDialog" || isModal {
+            Logger.log("[AutoCapture] captureIfEligible[\(source)]: REJECTED modal — subrole=\(subrole ?? "nil") modal=\(isModal) — \(window.appName): \(window.title)")
             return false
+        }
+
+        // Signal 2: Elevated window level (floating panels, modal panels, popups)
+        if let level = windowLevel, level > 0 {
+            Logger.log("[AutoCapture] captureIfEligible[\(source)]: REJECTED elevated level \(level) — \(window.appName): \(window.title)")
+            return false
+        }
+
+        // Signal 3: Size heuristics
+        if let s = size {
+            // Too tiny in any dimension — not a real work window
+            if s.width < 200 || s.height < 150 {
+                Logger.log("[AutoCapture] captureIfEligible[\(source)]: REJECTED too small \(Int(s.width))x\(Int(s.height)) — \(window.appName): \(window.title)")
+                return false
+            }
+            // Both dimensions small — likely a popup or extension panel
+            if s.width < 400 && s.height < 400 {
+                Logger.log("[AutoCapture] captureIfEligible[\(source)]: REJECTED popup-sized \(Int(s.width))x\(Int(s.height)) — \(window.appName): \(window.title)")
+                return false
+            }
         }
 
         guard let frame = AccessibilityHelper.getFrame(of: element) else {

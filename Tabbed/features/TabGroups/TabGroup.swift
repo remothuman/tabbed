@@ -65,11 +65,21 @@ class TabGroup: Identifiable, ObservableObject {
 
     func removeWindow(at index: Int) -> WindowInfo? {
         guard index >= 0, index < windows.count else { return nil }
+        let wasActive = index == activeIndex
         let removed = windows.remove(at: index)
         focusHistory.removeAll { $0 == removed.id }
         cycleOrder.removeAll { $0 == removed.id }
-        if activeIndex >= windows.count {
-            activeIndex = max(0, windows.count - 1)
+
+        if windows.isEmpty {
+            activeIndex = 0
+        } else if wasActive {
+            // Switch to most recently used tab
+            if let mruID = focusHistory.first,
+               let mruIndex = windows.firstIndex(where: { $0.id == mruID }) {
+                activeIndex = mruIndex
+            } else {
+                activeIndex = max(0, min(index, windows.count - 1))
+            }
         } else if index < activeIndex {
             activeIndex -= 1
         }
@@ -104,6 +114,9 @@ class TabGroup: Identifiable, ObservableObject {
             activeIndex = 0
         } else if let activeID, let newIndex = windows.firstIndex(where: { $0.id == activeID }) {
             activeIndex = newIndex
+        } else if let mruID = focusHistory.first,
+                  let mruIndex = windows.firstIndex(where: { $0.id == mruID }) {
+            activeIndex = mruIndex
         } else {
             activeIndex = max(0, min(activeIndex, windows.count - 1))
         }

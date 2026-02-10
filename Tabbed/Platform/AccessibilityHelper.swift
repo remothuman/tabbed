@@ -121,6 +121,13 @@ enum AccessibilityHelper {
         return boolValue
     }
 
+    static func isModal(_ element: AXUIElement) -> Bool {
+        var value: AnyObject?
+        let result = AXUIElementCopyAttributeValue(element, "AXModal" as CFString, &value)
+        guard result == .success, let boolValue = value as? Bool else { return false }
+        return boolValue
+    }
+
     // MARK: - Write Attributes
 
     @discardableResult
