@@ -7,7 +7,7 @@
 - preemptive detailed logging
 - improve tests including minimum performance in tests
 
-- quick switcher improvements
+- quick switcher & MRU improvements
     - quick switcher when switching to window and back to old window it sometimes opens the app you were just in instead of the window you teid to tab back into
     - quick switcher design / style
     - quick switcher general reliablitiy
@@ -15,6 +15,7 @@
         - performance sometimes bad
         - quick switcher forgets about individual apps to easily 
             - might be issue with discovery across spaces which may be hacky. i believe alttab maintains internal list vs ours rechecks every time?
+    - mru maybe doesnt get updated on all window changes, just app changes and in-group window changes?, idk
 
 - make settings window show up as window (it does show up in alttab, maybe reconsider what we're targetting)
 - autojoin: pretection against picking up ui elements as winodws to autojoin
@@ -22,6 +23,14 @@
      - ie even when we ungroup them then switch back it gobbbles them, should only gobble on app launch
 - autojoin still sometimes misses windows though
 
+- close buttons default reconsider and make configurable in settings
+    - can turn off confirm to close
+    - maybe make current thing close instead of disjoin
+    - holding shift switches the action between close/release
+    
+- fullscreen improvements
+    - turns out we can draw tab bar (so maybe have it show up on mouse top of screen?)
+    - right now behaviro somewhat unspecified. did a feature which i didnt merge, need to redo
 
 
 Future:
