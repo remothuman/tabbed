@@ -15,6 +15,14 @@ extension AppDelegate {
 
     func showWindowPicker(addingTo group: TabGroup? = nil, insertAt: Int? = nil) {
         dismissWindowPicker()
+        if useLegacyWindowPicker {
+            showLegacyWindowPicker(addingTo: group, insertAt: insertAt)
+        } else {
+            showAddWindowPalette(addingTo: group, insertAt: insertAt)
+        }
+    }
+
+    private func showLegacyWindowPicker(addingTo group: TabGroup?, insertAt: Int?) {
         windowManager.refreshWindowList()
 
         let picker = WindowPickerView(
@@ -25,12 +33,12 @@ extension AppDelegate {
                 self?.dismissWindowPicker()
             },
             onAddToGroup: { [weak self] window in
-                guard let group = group else { return }
+                guard let group else { return }
                 self?.addWindow(window, to: group, at: insertAt)
                 self?.dismissWindowPicker()
             },
             onMergeGroup: { [weak self] sourceGroup in
-                guard let group = group else { return }
+                guard let group else { return }
                 self?.mergeGroup(sourceGroup, into: group, at: insertAt)
                 self?.dismissWindowPicker()
             },
@@ -51,6 +59,242 @@ extension AppDelegate {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         windowPickerPanel = panel
+    }
+
+    private func showAddWindowPalette(addingTo group: TabGroup?, insertAt: Int?) {
+        let panel = AddWindowPalettePanel()
+
+        let viewModel = AddWindowPaletteViewModel(
+            launcherEngine: launcherEngine,
+            contextProvider: { [weak self] in
+                self?.buildLauncherContext(addingTo: group) ?? LauncherQueryContext(
+                    mode: .newGroup,
+                    looseWindows: [],
+                    mergeGroups: [],
+                    appCatalog: [],
+                    launcherConfig: .default,
+                    resolvedBrowserProvider: nil,
+                    currentSpaceID: nil,
+                    windowRecency: [:],
+                    groupRecency: [:],
+                    appRecency: [:]
+                )
+            },
+            actionExecutor: { [weak self] action, context, completion in
+                self?.executeLauncherAction(
+                    action,
+                    context: context,
+                    addingTo: group,
+                    insertAt: insertAt,
+                    completion: completion
+                )
+            },
+            dismiss: { [weak self] in
+                self?.dismissWindowPicker()
+            }
+        )
+
+        panel.onMoveSelection = { delta in
+            viewModel.moveSelection(by: delta)
+        }
+        panel.onConfirmSelection = {
+            viewModel.executeSelection()
+        }
+        panel.onEscape = { [weak self] in
+            self?.dismissWindowPicker()
+        }
+        panel.onOutsideClick = { [weak self] in
+            self?.dismissWindowPicker()
+        }
+        panel.onRefresh = {
+            viewModel.refreshSources()
+        }
+
+        let root = AddWindowPaletteView(
+            viewModel: viewModel,
+            onDismiss: { [weak self] in self?.dismissWindowPicker() }
+        )
+        panel.contentView = NSHostingView(rootView: root)
+        panel.showCenteredOnActiveScreen()
+        windowPickerPanel = panel
+    }
+
+    private func buildLauncherContext(addingTo group: TabGroup?) -> LauncherQueryContext {
+        let spaceWindows = WindowDiscovery.currentSpace()
+        let looseWindows = spaceWindows.filter { !groupManager.isWindowGrouped($0.id) }
+        let appCatalog = appCatalogService.loadCatalog()
+        let resolvedProvider = browserProviderResolver.resolve(config: addWindowLauncherConfig)
+        let currentSpaceID = resolveCurrentSpaceID(windowsOnCurrentSpace: spaceWindows)
+
+        let mergeGroups: [TabGroup]
+        let mode: LauncherMode
+        if let group {
+            mode = .addToGroup(targetGroupID: group.id, targetSpaceID: group.spaceID)
+            mergeGroups = groupManager.groups.filter { candidate in
+                guard candidate.id != group.id else { return false }
+                guard isGroupOnCurrentSpace(candidate) else { return false }
+                if group.spaceID == 0 { return true }
+                if candidate.spaceID == 0 {
+                    guard let activeWindow = candidate.activeWindow,
+                          let candidateSpace = SpaceUtils.spaceID(for: activeWindow.id) else { return false }
+                    return candidateSpace == group.spaceID
+                }
+                return candidate.spaceID == group.spaceID
+            }
+        } else {
+            mode = .newGroup
+            mergeGroups = []
+        }
+
+        var windowRecency: [CGWindowID: Int] = [:]
+        var groupRecency: [UUID: Int] = [:]
+        for (index, entry) in globalMRU.enumerated() {
+            let score = globalMRU.count - index
+            switch entry {
+            case .window(let windowID):
+                windowRecency[windowID] = score
+            case .group(let groupID):
+                groupRecency[groupID] = score
+            }
+        }
+
+        var appRecency: [String: Int] = [:]
+        for (index, app) in appCatalog.enumerated() {
+            appRecency[app.bundleID] = appCatalog.count - index
+        }
+
+        Logger.log("[LAUNCHER_QUERY] context windows=\(looseWindows.count) groups=\(mergeGroups.count) apps=\(appCatalog.count)")
+        return LauncherQueryContext(
+            mode: mode,
+            looseWindows: looseWindows,
+            mergeGroups: mergeGroups,
+            appCatalog: appCatalog,
+            launcherConfig: addWindowLauncherConfig,
+            resolvedBrowserProvider: resolvedProvider,
+            currentSpaceID: currentSpaceID,
+            windowRecency: windowRecency,
+            groupRecency: groupRecency,
+            appRecency: appRecency
+        )
+    }
+
+    private func resolveCurrentSpaceID(windowsOnCurrentSpace: [WindowInfo]) -> UInt64? {
+        if let focused = focusedWindowID(),
+           let focusedSpace = SpaceUtils.spaceID(for: focused) {
+            return focusedSpace
+        }
+        if let activeWindow = activeGroup()?.0.activeWindow?.id,
+           let activeSpace = SpaceUtils.spaceID(for: activeWindow) {
+            return activeSpace
+        }
+        return windowsOnCurrentSpace.first.flatMap { SpaceUtils.spaceID(for: $0.id) }
+    }
+
+    private func focusedWindowID() -> CGWindowID? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else { return nil }
+        let appElement = AccessibilityHelper.appElement(for: frontApp.processIdentifier)
+        var focusedValue: AnyObject?
+        let result = AXUIElementCopyAttributeValue(
+            appElement, kAXFocusedWindowAttribute as CFString, &focusedValue
+        )
+        guard result == .success, let focusedValue else { return nil }
+        let windowElement = focusedValue as! AXUIElement // swiftlint:disable:this force_cast
+        return AccessibilityHelper.windowID(for: windowElement)
+    }
+
+    private func executeLauncherAction(
+        _ action: LauncherAction,
+        context: LauncherQueryContext,
+        addingTo _: TabGroup?,
+        insertAt: Int?,
+        completion: @escaping (LaunchAttemptResult) -> Void
+    ) {
+        switch action {
+        case .looseWindow(let windowID):
+            guard let window = context.looseWindows.first(where: { $0.id == windowID }) else {
+                completion(.failed(status: "Window is no longer available"))
+                return
+            }
+            switch context.mode {
+            case .newGroup:
+                createGroup(with: [window])
+            case .addToGroup(let targetGroupID, _):
+                guard let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }) else {
+                    completion(.failed(status: "Target group no longer exists"))
+                    return
+                }
+                addWindow(window, to: targetGroup, at: insertAt)
+            }
+            completion(.succeeded)
+
+        case .mergeGroup(let groupID):
+            guard case .addToGroup(let targetGroupID, _) = context.mode,
+                  let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
+                  let sourceGroup = groupManager.groups.first(where: { $0.id == groupID }) else {
+                completion(.failed(status: "Group is no longer available"))
+                return
+            }
+            mergeGroup(sourceGroup, into: targetGroup, at: insertAt)
+            completion(.succeeded)
+
+        case .appLaunch(let bundleID, _, _):
+            guard let app = context.appCatalog.first(where: { $0.bundleID == bundleID }) else {
+                completion(.failed(status: "App is no longer available"))
+                return
+            }
+            let request = LaunchOrchestrator.CaptureRequest(mode: context.mode, currentSpaceID: context.currentSpaceID)
+            launchOrchestrator.launchAppAndCapture(app: app, request: request) { [weak self] outcome in
+                self?.handleCaptureOutcome(outcome, context: context, completion: completion)
+            }
+
+        case .openURL(let url):
+            let request = LaunchOrchestrator.CaptureRequest(mode: context.mode, currentSpaceID: context.currentSpaceID)
+            launchOrchestrator.launchURLAndCapture(url: url, provider: context.resolvedBrowserProvider, request: request) { [weak self] outcome in
+                self?.handleCaptureOutcome(outcome, context: context, completion: completion)
+            }
+
+        case .webSearch(let query):
+            let request = LaunchOrchestrator.CaptureRequest(mode: context.mode, currentSpaceID: context.currentSpaceID)
+            launchOrchestrator.launchSearchAndCapture(
+                query: query,
+                provider: context.resolvedBrowserProvider,
+                searchEngine: context.launcherConfig.searchEngine,
+                request: request
+            ) { [weak self] outcome in
+                self?.handleCaptureOutcome(outcome, context: context, completion: completion)
+            }
+        }
+    }
+
+    private func handleCaptureOutcome(
+        _ outcome: LaunchOrchestrator.Outcome,
+        context: LauncherQueryContext,
+        completion: @escaping (LaunchAttemptResult) -> Void
+    ) {
+        switch outcome.result {
+        case .succeeded:
+            guard let capturedWindow = outcome.capturedWindow else {
+                completion(.failed(status: "No captured window"))
+                return
+            }
+
+            switch context.mode {
+            case .newGroup:
+                createGroup(with: [capturedWindow])
+                completion(.succeeded)
+            case .addToGroup(let targetGroupID, _):
+                guard let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }) else {
+                    completion(.failed(status: "Target group no longer exists"))
+                    return
+                }
+                addWindow(capturedWindow, to: targetGroup, afterActive: true)
+                completion(.succeeded)
+            }
+        case .timedOut(let status):
+            completion(.timedOut(status: status))
+        case .failed(let status):
+            completion(.failed(status: status))
+        }
     }
 
     func dismissWindowPicker() {
@@ -95,9 +339,9 @@ extension AppDelegate {
         group.tabBarSqueezeDelta = squeezeDelta
         group.switchTo(index: activeIndex)
 
-        setExpectedFrame(frame, for: group.windows.map(\.id))
+        setExpectedFrame(frame, for: group.visibleWindows.map(\.id))
 
-        for window in group.windows {
+        for window in group.visibleWindows {
             AccessibilityHelper.setFrame(of: window.element, to: frame)
         }
 
@@ -198,7 +442,7 @@ extension AppDelegate {
             if !self.framesMatch(clamped, group.frame) {
                 group.frame = clamped
                 group.tabBarSqueezeDelta = squeezeDelta
-                let others = group.windows.filter { $0.id != activeWindow.id }
+                let others = group.visibleWindows.filter { $0.id != activeWindow.id }
                 if !others.isEmpty {
                     self.setExpectedFrame(clamped, for: others.map(\.id))
                     for window in others {
@@ -244,6 +488,14 @@ extension AppDelegate {
     }
 
     func switchTab(in group: TabGroup, to index: Int, panel: TabBarPanel) {
+        guard let window = group.windows[safe: index] else { return }
+
+        // Fullscreened window: raise it to switch to its fullscreen Space.
+        if window.isFullscreened {
+            focusWindow(window)
+            return
+        }
+
         let previousID = group.activeWindow?.id
         group.switchTo(index: index)
         guard let window = group.activeWindow else { return }
@@ -279,20 +531,18 @@ extension AppDelegate {
         windowObserver.stopObserving(window: window)
         expectedFrames.removeValue(forKey: window.id)
 
-        // Expand the released window upward to cover the tab bar area.
-        // Size first so the window can grow, then position to move it up.
-        // Re-push position after a delay because some apps revert position
-        // changes asynchronously (same issue solved in applicationWillTerminate
-        // where the process is terminating and can't fight back).
-        if let frame = AccessibilityHelper.getFrame(of: window.element) {
-            let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
-            let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
-            let element = window.element
-            AccessibilityHelper.setSize(of: element, to: expanded.size)
-            AccessibilityHelper.setPosition(of: element, to: expanded.origin)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+        // Fullscreened windows: skip frame expansion (macOS manages their frame)
+        if !window.isFullscreened {
+            if let frame = AccessibilityHelper.getFrame(of: window.element) {
+                let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
+                let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
+                let element = window.element
                 AccessibilityHelper.setSize(of: element, to: expanded.size)
+                AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+                    AccessibilityHelper.setSize(of: element, to: expanded.size)
+                }
             }
         }
 
@@ -365,7 +615,8 @@ extension AppDelegate {
 
         if let lastWindow = group.windows.first {
             windowObserver.stopObserving(window: lastWindow)
-            if group.tabBarSqueezeDelta > 0, let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
+            if !lastWindow.isFullscreened, group.tabBarSqueezeDelta > 0,
+               let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
                 let expandedFrame = ScreenCompensation.expandFrame(lastFrame, undoingSqueezeDelta: group.tabBarSqueezeDelta)
                 AccessibilityHelper.setFrame(of: lastWindow.element, to: expandedFrame)
             }
@@ -390,7 +641,8 @@ extension AppDelegate {
 
         for window in group.windows {
             windowObserver.stopObserving(window: window)
-            if group.tabBarSqueezeDelta > 0, let frame = AccessibilityHelper.getFrame(of: window.element) {
+            if !window.isFullscreened, group.tabBarSqueezeDelta > 0,
+               let frame = AccessibilityHelper.getFrame(of: window.element) {
                 let expandedFrame = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: group.tabBarSqueezeDelta)
                 AccessibilityHelper.setFrame(of: window.element, to: expandedFrame)
             }
@@ -579,9 +831,9 @@ extension AppDelegate {
         )
         group.frame = newFrame
 
-        let allIDs = group.windows.map(\.id)
+        let allIDs = group.visibleWindows.map(\.id)
         setExpectedFrame(newFrame, for: allIDs)
-        for window in group.windows {
+        for window in group.visibleWindows {
             AccessibilityHelper.setPosition(of: window.element, to: newFrame.origin)
         }
     }
@@ -591,9 +843,9 @@ extension AppDelegate {
         barDragInitialFrame = nil
 
         // Sync all windows to the final position
-        let allIDs = group.windows.map(\.id)
+        let allIDs = group.visibleWindows.map(\.id)
         setExpectedFrame(group.frame, for: allIDs)
-        for window in group.windows {
+        for window in group.visibleWindows {
             AccessibilityHelper.setFrame(of: window.element, to: group.frame)
         }
 
@@ -608,9 +860,9 @@ extension AppDelegate {
         if adjustedFrame != group.frame {
             group.frame = adjustedFrame
             group.tabBarSqueezeDelta = squeezeDelta
-            let otherIDs = group.windows.filter { $0.id != activeWindow.id }.map(\.id)
-            setExpectedFrame(adjustedFrame, for: otherIDs)
-            for window in group.windows where window.id != activeWindow.id {
+            let others = group.visibleWindows.filter { $0.id != activeWindow.id }
+            setExpectedFrame(adjustedFrame, for: others.map(\.id))
+            for window in others {
                 AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
             }
         }
@@ -648,9 +900,9 @@ extension AppDelegate {
 
     private func setGroupFrame(_ group: TabGroup, to frame: CGRect, panel: TabBarPanel) {
         group.frame = frame
-        let allIDs = group.windows.map(\.id)
+        let allIDs = group.visibleWindows.map(\.id)
         setExpectedFrame(frame, for: allIDs)
-        for window in group.windows {
+        for window in group.visibleWindows {
             AccessibilityHelper.setFrame(of: window.element, to: frame)
         }
         panel.positionAbove(windowFrame: frame)
@@ -790,7 +1042,7 @@ extension AppDelegate {
             windowObserver.stopObserving(window: window)
             expectedFrames.removeValue(forKey: window.id)
 
-            if let frame = AccessibilityHelper.getFrame(of: window.element) {
+            if !window.isFullscreened, let frame = AccessibilityHelper.getFrame(of: window.element) {
                 let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
                 let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
                 let element = window.element

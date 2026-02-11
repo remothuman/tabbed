@@ -35,6 +35,15 @@ class TabGroup: Identifiable, ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    var fullscreenedWindowIDs: Set<CGWindowID> {
+        Set(windows.filter(\.isFullscreened).map(\.id))
+    }
+
+    /// Windows that are not in fullscreen — used for frame sync operations.
+    var visibleWindows: [WindowInfo] {
+        windows.filter { !$0.isFullscreened }
+    }
+
     init(windows: [WindowInfo], frame: CGRect, spaceID: UInt64 = 0, name: String? = nil) {
         self.windows = windows
         self.activeIndex = 0
@@ -64,20 +73,26 @@ class TabGroup: Identifiable, ObservableObject {
 
     func removeWindow(at index: Int) -> WindowInfo? {
         guard index >= 0, index < windows.count else { return nil }
-        let previousActiveIndex = activeIndex
+        let wasActive = index == activeIndex
+        let activeWasMRU = wasActive && focusHistory.first == windows[index].id
         let removed = windows.remove(at: index)
         focusHistory.removeAll { $0 == removed.id }
         cycleOrder.removeAll { $0 == removed.id }
 
         if windows.isEmpty {
             activeIndex = 0
-        } else if previousActiveIndex == index {
-            // If the active tab was removed, prefer the tab immediately before it.
-            activeIndex = max(0, min(index - 1, windows.count - 1))
-        } else if previousActiveIndex > index {
-            activeIndex = previousActiveIndex - 1
-        } else {
-            activeIndex = min(previousActiveIndex, windows.count - 1)
+        } else if wasActive {
+            // If active focus history is trustworthy, switch to MRU; otherwise prefer the previous tab.
+            if activeWasMRU,
+               let mruID = focusHistory.first,
+               let mruIndex = windows.firstIndex(where: { $0.id == mruID }) {
+                activeIndex = mruIndex
+            } else {
+                // If MRU history is unavailable, prefer the tab immediately before the removed one.
+                activeIndex = max(0, min(index - 1, windows.count - 1))
+            }
+        } else if index < activeIndex {
+            activeIndex -= 1
         }
         return removed
     }
@@ -93,6 +108,7 @@ class TabGroup: Identifiable, ObservableObject {
 
         let activeID = activeWindow?.id
         let previousActiveIndex = activeIndex
+        let activeWasMRU = activeID != nil && focusHistory.first == activeID
         var removed: [WindowInfo] = []
         var removedOriginalIndices: [Int] = []
 
@@ -113,6 +129,10 @@ class TabGroup: Identifiable, ObservableObject {
             activeIndex = 0
         } else if let activeID, let newIndex = windows.firstIndex(where: { $0.id == activeID }) {
             activeIndex = newIndex
+        } else if activeWasMRU,
+                  let mruID = focusHistory.first,
+                  let mruIndex = windows.firstIndex(where: { $0.id == mruID }) {
+            activeIndex = mruIndex
         } else {
             let removedBeforeActive = removedOriginalIndices.filter { $0 < previousActiveIndex }.count
             let preferredIndex = previousActiveIndex - removedBeforeActive - 1
@@ -142,12 +162,12 @@ class TabGroup: Identifiable, ObservableObject {
     /// Returns the index of the next window in MRU order.
     /// Snapshots the MRU order on first call so mid-cycle focus events can't cause revisits.
     func nextInMRUCycle() -> Int? {
-        guard windows.count > 1 else { return nil }
+        guard windows.filter({ !$0.isFullscreened }).count > 1 else { return nil }
 
         if !isCycling {
             isCycling = true
             // Snapshot: freeze MRU order, filtered to windows still in the group
-            let windowIDs = Set(windows.map(\.id))
+            let windowIDs = Set(windows.filter { !$0.isFullscreened }.map(\.id))
             cycleOrder = focusHistory.filter { windowIDs.contains($0) }
             if cycleOrder.isEmpty { cycleOrder = windows.map(\.id) }
             cyclePosition = 0

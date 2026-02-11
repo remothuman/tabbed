@@ -1,3 +1,8 @@
+- auto detects modal windows and stuff (maybe just have minimum size? or investigate a smarter solution as well)
+- on window close should go to last tab in mru not next tab (eg if modal gets caputured)
+
+- quick switcher performance issues
+
 
 
 - Feature: New Tab can also launch apps

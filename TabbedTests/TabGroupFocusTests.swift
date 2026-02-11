@@ -59,6 +59,75 @@ final class TabGroupFocusTests: XCTestCase {
         XCTAssertEqual(group.focusHistory.count, 2)
     }
 
+    func testRemoveActiveWindowFallsToMRU() {
+        let w1 = makeWindow(id: 1)
+        let w2 = makeWindow(id: 2)
+        let w3 = makeWindow(id: 3)
+        let w4 = makeWindow(id: 4)
+        let group = TabGroup(windows: [w1, w2, w3, w4], frame: .zero)
+        // focusHistory: [1, 2, 3, 4]
+
+        // Build MRU: focus 3, then 1, then 2 → MRU: [2, 1, 3, 4]
+        group.recordFocus(windowID: 3)
+        group.recordFocus(windowID: 1)
+        group.recordFocus(windowID: 2)
+
+        group.switchTo(index: 1) // Window 2 is active
+        _ = group.removeWindow(at: 1) // Remove window 2
+
+        // MRU after removing 2: [1, 3, 4] → should switch to window 1
+        XCTAssertEqual(group.activeWindow?.id, 1)
+    }
+
+    func testRemoveActiveWindowFallsToMRUNotNeighbor() {
+        let w1 = makeWindow(id: 1)
+        let w2 = makeWindow(id: 2)
+        let w3 = makeWindow(id: 3)
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+        // focusHistory: [1, 2, 3]
+
+        // Focus window 3, then window 2 → MRU: [2, 3, 1]
+        group.recordFocus(windowID: 3)
+        group.recordFocus(windowID: 2)
+
+        group.switchTo(index: 1) // Window 2 is active
+        _ = group.removeWindow(at: 1) // Remove window 2
+
+        // MRU after removing 2: [3, 1] → should switch to window 3, not window 1 (positional neighbor)
+        XCTAssertEqual(group.activeWindow?.id, 3)
+    }
+
+    func testRemoveNonActiveWindowKeepsActive() {
+        let w1 = makeWindow(id: 1)
+        let w2 = makeWindow(id: 2)
+        let w3 = makeWindow(id: 3)
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+
+        group.switchTo(index: 2) // Window 3 is active
+        _ = group.removeWindow(at: 0) // Remove window 1
+
+        // Non-active removed → active stays on window 3
+        XCTAssertEqual(group.activeWindow?.id, 3)
+    }
+
+    func testBatchRemoveActiveWindowFallsToMRU() {
+        let w1 = makeWindow(id: 1)
+        let w2 = makeWindow(id: 2)
+        let w3 = makeWindow(id: 3)
+        let w4 = makeWindow(id: 4)
+        let group = TabGroup(windows: [w1, w2, w3, w4], frame: .zero)
+
+        // Build MRU: [4, 2, 1, 3]
+        group.recordFocus(windowID: 2)
+        group.recordFocus(windowID: 4)
+
+        group.switchTo(index: 3) // Window 4 is active
+        _ = group.removeWindows(withIDs: [4, 1]) // Remove active + another
+
+        // MRU after removing 4 and 1: [2, 3] → should switch to window 2
+        XCTAssertEqual(group.activeWindow?.id, 2)
+    }
+
     func testAddWindowAppendsFocusHistory() {
         let w1 = makeWindow(id: 1)
         let group = TabGroup(windows: [w1], frame: .zero)
