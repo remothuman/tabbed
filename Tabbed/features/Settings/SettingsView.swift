@@ -2,11 +2,12 @@ import SwiftUI
 import ServiceManagement
 
 enum SettingsTab: Int {
-    case general, tabBar, shortcuts, switcher
+    case general, launcher, tabBar, shortcuts, switcher
 
     var contentHeight: CGFloat {
         switch self {
         case .general:   return 340
+        case .launcher:  return 420
         case .tabBar:    return 200
         case .shortcuts: return 520
         case .switcher:  return 350
@@ -18,6 +19,7 @@ struct SettingsView: View {
     @State private var config: ShortcutConfig
     @State private var sessionConfig: SessionConfig
     @State private var switcherConfig: SwitcherConfig
+    @State private var launcherConfig: AddWindowLauncherConfig
     @ObservedObject var tabBarConfig: TabBarConfig
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var recordingAction: ShortcutAction?
@@ -25,23 +27,28 @@ struct SettingsView: View {
     var onConfigChanged: (ShortcutConfig) -> Void
     var onSessionConfigChanged: (SessionConfig) -> Void
     var onSwitcherConfigChanged: (SwitcherConfig) -> Void
+    var onLauncherConfigChanged: (AddWindowLauncherConfig) -> Void
 
     init(
         config: ShortcutConfig,
         sessionConfig: SessionConfig,
         switcherConfig: SwitcherConfig,
+        launcherConfig: AddWindowLauncherConfig,
         tabBarConfig: TabBarConfig,
         onConfigChanged: @escaping (ShortcutConfig) -> Void,
         onSessionConfigChanged: @escaping (SessionConfig) -> Void,
-        onSwitcherConfigChanged: @escaping (SwitcherConfig) -> Void
+        onSwitcherConfigChanged: @escaping (SwitcherConfig) -> Void,
+        onLauncherConfigChanged: @escaping (AddWindowLauncherConfig) -> Void
     ) {
         self._config = State(initialValue: config)
         self._sessionConfig = State(initialValue: sessionConfig)
         self._switcherConfig = State(initialValue: switcherConfig)
+        self._launcherConfig = State(initialValue: launcherConfig)
         self.tabBarConfig = tabBarConfig
         self.onConfigChanged = onConfigChanged
         self.onSessionConfigChanged = onSessionConfigChanged
         self.onSwitcherConfigChanged = onSwitcherConfigChanged
+        self.onLauncherConfigChanged = onLauncherConfigChanged
     }
 
     var body: some View {
@@ -49,6 +56,9 @@ struct SettingsView: View {
             generalTab
                 .tabItem { Label("General", systemImage: "gear") }
                 .tag(SettingsTab.general)
+            launcherTab
+                .tabItem { Label("Launcher", systemImage: "magnifyingglass") }
+                .tag(SettingsTab.launcher)
             tabBarTab
                 .tabItem { Label("Tab Bar", systemImage: "paintbrush") }
                 .tag(SettingsTab.tabBar)
@@ -74,6 +84,21 @@ struct SettingsView: View {
         }
         .onChange(of: switcherConfig.tabCycleStyle) { _ in
             onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: launcherConfig.urlLaunchEnabled) { _ in
+            onLauncherConfigChanged(launcherConfig)
+        }
+        .onChange(of: launcherConfig.providerMode) { _ in
+            onLauncherConfigChanged(launcherConfig)
+        }
+        .onChange(of: launcherConfig.searchEngine) { _ in
+            onLauncherConfigChanged(launcherConfig)
+        }
+        .onChange(of: launcherConfig.manualSelection.bundleID) { _ in
+            onLauncherConfigChanged(launcherConfig)
+        }
+        .onChange(of: launcherConfig.manualSelection.engine) { _ in
+            onLauncherConfigChanged(launcherConfig)
         }
         // tabBarConfig auto-saves via didSet on its style property
         .background(ShortcutRecorderBridge(
@@ -170,6 +195,82 @@ struct SettingsView: View {
     }
 
     // MARK: - Tab Bar Tab
+
+    private var launcherTab: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Toggle(isOn: $launcherConfig.urlLaunchEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Enable URL / Search Actions")
+                        Text("Show URL and web search candidates in Add Window when query is non-empty.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .padding(.top, 8)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Browser Provider")
+                        .font(.headline)
+
+                    Picker("Mode", selection: $launcherConfig.providerMode) {
+                        Text("Auto").tag(BrowserProviderMode.auto)
+                        Text("Manual").tag(BrowserProviderMode.manual)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(providerDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 10)
+
+                if launcherConfig.providerMode == .manual {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Manual Provider")
+                            .font(.headline)
+
+                        TextField("Bundle ID (e.g. com.google.Chrome)", text: $launcherConfig.manualSelection.bundleID)
+                            .textFieldStyle(.roundedBorder)
+
+                        Picker("Engine", selection: $launcherConfig.manualSelection.engine) {
+                            Text("Chromium").tag(BrowserEngine.chromium)
+                            Text("Firefox").tag(BrowserEngine.firefox)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Search Engine")
+                        .font(.headline)
+
+                    Picker("Engine", selection: $launcherConfig.searchEngine) {
+                        Text(SearchEngine.google.displayName).tag(SearchEngine.google)
+                        Text(SearchEngine.duckDuckGo.displayName).tag(SearchEngine.duckDuckGo)
+                        Text(SearchEngine.bing.displayName).tag(SearchEngine.bing)
+                        Text(SearchEngine.providerNative.displayName).tag(SearchEngine.providerNative)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+            }
+        }
+    }
 
     private var tabBarTab: some View {
         VStack(spacing: 0) {
@@ -374,6 +475,15 @@ struct SettingsView: View {
             return "Always restore groups, even if some windows are missing."
         case .off:
             return "Never auto-restore. Use the menu bar button to restore manually."
+        }
+    }
+
+    private var providerDescription: String {
+        switch launcherConfig.providerMode {
+        case .auto:
+            return "Auto prefers Helium, then known Chromium providers, then Firefox providers."
+        case .manual:
+            return "Manual uses your bundle ID and selected engine adapter."
         }
     }
 

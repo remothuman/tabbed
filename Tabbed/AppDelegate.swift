@@ -29,6 +29,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var switcherController = SwitcherController()
     var switcherConfig = SwitcherConfig.load()
     var tabBarConfig = TabBarConfig.load()
+    var addWindowLauncherConfig = AddWindowLauncherConfig.load()
+    let launcherEngine = LauncherEngine()
+    let appCatalogService = AppCatalogService()
+    let browserProviderResolver = BrowserProviderResolver()
+    lazy var launchOrchestrator: LaunchOrchestrator = {
+        var dependencies = LaunchOrchestrator.Dependencies()
+        dependencies.isWindowGrouped = { [weak self] windowID in
+            self?.groupManager.isWindowGrouped(windowID) ?? false
+        }
+        return LaunchOrchestrator(
+            resolver: browserProviderResolver,
+            dependencies: dependencies
+        )
+    }()
+    let useLegacyWindowPicker = false
     weak var cyclingGroup: TabGroup?
     var cycleEndTime: Date?
     static let cycleCooldownDuration: TimeInterval = 0.15
@@ -316,6 +331,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             config: hotkeyManager?.config ?? .default,
             sessionConfig: SessionConfig.load(),
             switcherConfig: switcherConfig,
+            launcherConfig: addWindowLauncherConfig,
             tabBarConfig: tabBarConfig,
             onConfigChanged: { [weak self] newConfig in
                 newConfig.save()
@@ -333,6 +349,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             onSwitcherConfigChanged: { [weak self] newConfig in
                 newConfig.save()
                 self?.switcherConfig = newConfig
+            },
+            onLauncherConfigChanged: { [weak self] newConfig in
+                newConfig.save()
+                self?.addWindowLauncherConfig = newConfig
             }
         )
         window.contentView = NSHostingView(rootView: settingsView)
