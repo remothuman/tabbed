@@ -15,7 +15,7 @@ class GroupManager: ObservableObject {
     }
 
     @discardableResult
-    func createGroup(with windows: [WindowInfo], frame: CGRect, spaceID: UInt64 = 0) -> TabGroup? {
+    func createGroup(with windows: [WindowInfo], frame: CGRect, spaceID: UInt64 = 0, name: String? = nil) -> TabGroup? {
         guard windows.count >= 1 else { return nil }
 
         // Reject duplicate window IDs in the input
@@ -27,7 +27,7 @@ class GroupManager: ObservableObject {
             if isWindowGrouped(window.id) { return nil }
         }
 
-        let group = TabGroup(windows: windows, frame: frame, spaceID: spaceID)
+        let group = TabGroup(windows: windows, frame: frame, spaceID: spaceID, name: name)
         groups.append(group)
         return group
     }

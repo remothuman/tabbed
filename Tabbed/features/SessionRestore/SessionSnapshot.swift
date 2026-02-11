@@ -15,6 +15,7 @@ struct GroupSnapshot: Codable {
     let activeIndex: Int
     let frame: CodableRect
     let tabBarSqueezeDelta: CGFloat
+    let name: String?
 }
 
 /// CGRect wrapper that conforms to Codable.

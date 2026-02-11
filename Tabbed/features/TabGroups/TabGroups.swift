@@ -86,10 +86,11 @@ extension AppDelegate {
         with windows: [WindowInfo],
         frame: CGRect,
         squeezeDelta: CGFloat,
-        activeIndex: Int = 0
+        activeIndex: Int = 0,
+        name: String? = nil
     ) -> TabGroup? {
         let spaceID = windows.first.flatMap { SpaceUtils.spaceID(for: $0.id) } ?? 0
-        guard let group = groupManager.createGroup(with: windows, frame: frame, spaceID: spaceID) else { return nil }
+        guard let group = groupManager.createGroup(with: windows, frame: frame, spaceID: spaceID, name: name) else { return nil }
         Logger.log("[SPACE] Created group \(group.id) on space \(spaceID)")
         group.tabBarSqueezeDelta = squeezeDelta
         group.switchTo(index: activeIndex)
@@ -121,6 +122,9 @@ extension AppDelegate {
             },
             onAddWindowAfterTab: { [weak self] index in
                 self?.showWindowPicker(addingTo: group, insertAt: index + 1)
+            },
+            onRequestGroupName: { [weak self] in
+                self?.promptForGroupName(group)
             },
             onReleaseTabs: { [weak self, weak panel] ids in
                 guard let panel else { return }
@@ -528,6 +532,38 @@ extension AppDelegate {
         switchTab(in: group, to: targetIndex, panel: panel)
     }
 
+    func promptForGroupName(_ group: TabGroup) {
+        let alert = NSAlert()
+        alert.messageText = group.displayName == nil ? "Name Group" : "Rename Group"
+        alert.informativeText = "This name appears on the tab bar and in the global quick switcher."
+
+        let input = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        input.placeholderString = "Group name"
+        input.stringValue = group.displayName ?? ""
+        alert.accessoryView = input
+
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        if group.displayName != nil {
+            alert.addButton(withTitle: "Clear Name")
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+
+        switch response {
+        case .alertFirstButtonReturn:
+            let trimmed = input.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            group.name = trimmed.isEmpty ? nil : trimmed
+            Logger.log("[GroupName] Group \(group.id) renamed to '\(group.displayName ?? "<none>")'")
+        case .alertThirdButtonReturn:
+            group.name = nil
+            Logger.log("[GroupName] Group \(group.id) name cleared")
+        default:
+            break
+        }
+    }
+
     // MARK: - Bar Drag & Zoom
 
     func handleBarDrag(group: TabGroup, totalDx: CGFloat, totalDy: CGFloat) {
@@ -651,15 +687,20 @@ extension AppDelegate {
 
             let tabCount = group.windows.count
             let panelWidth = panel.frame.width
-            let tabStep = tabCount > 0
-                ? (panelWidth - TabBarView.horizontalPadding - TabBarView.addButtonWidth) / CGFloat(tabCount)
-                : 0
+            let showHandle = tabBarConfig.showDragHandle
+            let leadingPad: CGFloat = showHandle ? 4 : 2
+            let trailingPad: CGFloat = 4
+            let handleWidth: CGFloat = showHandle ? TabBarView.dragHandleWidth : 0
+            let groupNameWidth = TabBarView.groupNameReservedWidth(for: group.name)
+            let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - handleWidth - groupNameWidth
+            let tabStep = tabCount > 0 ? availableWidth / CGFloat(tabCount) : 0
 
             // Convert mouse X to local panel coordinates
             let localX = mouseLocation.x - panel.frame.origin.x
             let insertionIndex: Int
             if tabStep > 0 {
-                insertionIndex = max(0, min(tabCount, Int(round((localX - TabBarView.horizontalPadding / 2) / tabStep))))
+                let tabContentStartX = leadingPad + handleWidth + groupNameWidth
+                insertionIndex = max(0, min(tabCount, Int(round((localX - tabContentStartX) / tabStep))))
             } else {
                 insertionIndex = 0
             }

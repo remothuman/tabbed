@@ -21,6 +21,16 @@ final class TabGroupTests: XCTestCase {
         XCTAssertEqual(group.activeIndex, 0)
     }
 
+    func testDisplayNameTrimsWhitespace() {
+        let group = TabGroup(windows: [makeWindow(id: 1)], frame: .zero, name: "  Work  ")
+        XCTAssertEqual(group.displayName, "Work")
+    }
+
+    func testDisplayNameReturnsNilForWhitespaceOnly() {
+        let group = TabGroup(windows: [makeWindow(id: 1)], frame: .zero, name: "   ")
+        XCTAssertNil(group.displayName)
+    }
+
     func testActiveWindow() {
         let w1 = makeWindow(id: 1)
         let w2 = makeWindow(id: 2)

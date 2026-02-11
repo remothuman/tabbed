@@ -4,6 +4,7 @@ struct SwitcherView: View {
     let items: [SwitcherItem]
     let selectedIndex: Int
     let style: SwitcherStyle
+    let namedGroupLabelMode: NamedGroupLabelMode
     let showLeadingOverflow: Bool
     let showTrailingOverflow: Bool
     /// When non-nil, the selected group item has a sub-selected window at this index.
@@ -59,6 +60,34 @@ struct SwitcherView: View {
             return window.appName
         }
         return item.appName
+    }
+
+    /// Label shown under app icons. Named groups use the group name by default.
+    private func iconLabel(for item: SwitcherItem, isSelected: Bool) -> String {
+        if case .group(let group) = item,
+           !(isSelected && subSelectedWindowIndex != nil),
+           let groupName = group.displayName {
+            switch namedGroupLabelMode {
+            case .groupNameOnly:
+                return truncatedTitle(groupName)
+            case .groupAppWindow:
+                let appName = group.activeWindow?.appName ?? ""
+                let windowTitle = group.activeWindow.map { $0.title.isEmpty ? $0.appName : $0.title } ?? ""
+                return truncatedTitle("\(groupName) - \(appName) - \(windowTitle)")
+            }
+        }
+        return displayAppName(for: item, isSelected: isSelected)
+    }
+
+    private func groupHeaderText(_ group: TabGroup) -> Text {
+        switch namedGroupLabelMode {
+        case .groupNameOnly:
+            return Text(group.displayName ?? "")
+        case .groupAppWindow:
+            let appName = group.activeWindow?.appName ?? ""
+            let windowTitle = group.activeWindow.map { $0.title.isEmpty ? $0.appName : $0.title } ?? ""
+            return Text(group.displayName ?? "").bold() + Text(" - \(appName) - \(windowTitle)")
+        }
     }
 
     // MARK: - App Icons Style
@@ -121,7 +150,7 @@ struct SwitcherView: View {
                     .stroke(strokeColor, lineWidth: 2.5)
             )
 
-            Text(displayAppName(for: item, isSelected: isSelected))
+            Text(iconLabel(for: item, isSelected: isSelected))
                 .font(.system(size: 11))
                 .lineLimit(1)
                 .foregroundStyle(isSelected ? .primary : .secondary)
@@ -202,8 +231,7 @@ struct SwitcherView: View {
     }
 
     private func titleRow(item: SwitcherItem, isSelected: Bool, isHovered: Bool) -> some View {
-        let title = displayTitle(for: item, isSelected: isSelected)
-        let appName = displayAppName(for: item, isSelected: isSelected)
+        let primaryText = titleRowText(for: item, isSelected: isSelected)
         let fillColor = isSelected ? Color.accentColor.opacity(0.25)
             : isHovered ? Color.primary.opacity(0.1)
             : Color.clear
@@ -228,7 +256,7 @@ struct SwitcherView: View {
                     .frame(width: 28, height: 28)
             }
 
-            Text("\(appName) — \(title)")
+            primaryText
                 .font(.system(size: 14))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -263,6 +291,19 @@ struct SwitcherView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(strokeColor, lineWidth: 1.5)
         )
+    }
+
+    @ViewBuilder
+    private func titleRowText(for item: SwitcherItem, isSelected: Bool) -> some View {
+        if case .group(let group) = item,
+           !(isSelected && subSelectedWindowIndex != nil),
+           group.displayName != nil {
+            groupHeaderText(group)
+        } else {
+            let title = displayTitle(for: item, isSelected: isSelected)
+            let appName = displayAppName(for: item, isSelected: isSelected)
+            Text("\(appName) — \(title)")
+        }
     }
 
     /// Small overlapping icons for the titles-style row.

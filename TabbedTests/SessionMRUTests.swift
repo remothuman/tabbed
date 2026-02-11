@@ -82,4 +82,14 @@ final class SessionMRUTests: XCTestCase {
         XCTAssertEqual(loaded[0].windows[0].appName, "Alpha")
         XCTAssertEqual(loaded[1].windows[0].appName, "Beta")
     }
+
+    func testSaveSessionPersistsGroupName() {
+        let group = makeGroup(app: "Alpha", windowID: 1)
+        group.name = "Team Alpha"
+
+        SessionManager.saveSession(groups: [group], mruGroupOrder: [])
+
+        let loaded = SessionManager.loadSession()!
+        XCTAssertEqual(loaded.first?.name, "Team Alpha")
+    }
 }

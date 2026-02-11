@@ -9,7 +9,7 @@ enum SettingsTab: Int {
         case .general:   return 340
         case .tabBar:    return 200
         case .shortcuts: return 520
-        case .switcher:  return 350
+        case .switcher:  return 430
         }
     }
 }
@@ -73,6 +73,9 @@ struct SettingsView: View {
             onSwitcherConfigChanged(switcherConfig)
         }
         .onChange(of: switcherConfig.tabCycleStyle) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: switcherConfig.namedGroupLabelMode) { _ in
             onSwitcherConfigChanged(switcherConfig)
         }
         // tabBarConfig auto-saves via didSet on its style property
@@ -298,6 +301,10 @@ struct SettingsView: View {
 
             Divider()
 
+            namedGroupLabelSection
+
+            Divider()
+
             switcherStyleSection(
                 title: "Tab Cycling",
                 description: "Cycles through tabs within the active group.",
@@ -306,6 +313,35 @@ struct SettingsView: View {
             )
 
             Spacer()
+        }
+    }
+
+    private var namedGroupLabelSection: some View {
+        VStack(spacing: 0) {
+            Text("Named Group Labels")
+                .font(.headline)
+                .padding(.top, 16)
+                .padding(.bottom, 4)
+
+            Text("Choose how named tab groups appear in the global switcher.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 8)
+
+            Picker("Format", selection: $switcherConfig.namedGroupLabelMode) {
+                Text("Group Name Only").tag(NamedGroupLabelMode.groupNameOnly)
+                Text("Group - App - Window").tag(NamedGroupLabelMode.groupAppWindow)
+            }
+            .pickerStyle(.menu)
+            .padding(.horizontal, 12)
+
+            Text(namedGroupLabelDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
         }
     }
 
@@ -350,6 +386,15 @@ struct SettingsView: View {
             return "Large icons in a horizontal row, like macOS Cmd+Tab."
         case .titles:
             return "Vertical list with app name, window title, and window count."
+        }
+    }
+
+    private var namedGroupLabelDescription: String {
+        switch switcherConfig.namedGroupLabelMode {
+        case .groupNameOnly:
+            return "Show only the group name for named groups."
+        case .groupAppWindow:
+            return "Show group name first, then app name and window title."
         }
     }
 

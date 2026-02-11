@@ -105,6 +105,14 @@ final class SwitcherItemTests: XCTestCase {
         XCTAssertEqual(item.displayTitle, "Finder")
     }
 
+    func testGroupDisplayTitleUsesGroupNameWhenPresent() {
+        let w1 = makeWindow(id: 601, title: "Some Tab", appName: "Finder")
+        let group = TabGroup(windows: [w1], frame: .zero, name: "Workspace")
+        let item = SwitcherItem.group(group)
+
+        XCTAssertEqual(item.displayTitle, "Workspace")
+    }
+
     // MARK: - iconsInMRUOrder
 
     func testIconsInMRUOrderReturnsSingleIconForSingleWindow() {

@@ -5,9 +5,15 @@ enum SwitcherStyle: String, Codable, CaseIterable {
     case titles
 }
 
+enum NamedGroupLabelMode: String, Codable, CaseIterable {
+    case groupNameOnly
+    case groupAppWindow
+}
+
 struct SwitcherConfig: Equatable {
     var globalStyle: SwitcherStyle = .appIcons
     var tabCycleStyle: SwitcherStyle = .appIcons
+    var namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow
 
     private static let userDefaultsKey = "switcherConfig"
 
@@ -30,6 +36,7 @@ struct SwitcherConfig: Equatable {
 extension SwitcherConfig: Codable {
     private enum CodingKeys: String, CodingKey {
         case globalStyle, tabCycleStyle
+        case namedGroupLabelMode
         case style // legacy single-style key
     }
 
@@ -42,11 +49,13 @@ extension SwitcherConfig: Codable {
             globalStyle = legacy
             tabCycleStyle = legacy
         }
+        namedGroupLabelMode = try container.decodeIfPresent(NamedGroupLabelMode.self, forKey: .namedGroupLabelMode) ?? .groupAppWindow
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(globalStyle, forKey: .globalStyle)
         try container.encode(tabCycleStyle, forKey: .tabCycleStyle)
+        try container.encode(namedGroupLabelMode, forKey: .namedGroupLabelMode)
     }
 }

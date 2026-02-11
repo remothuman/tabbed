@@ -23,6 +23,9 @@ enum SwitcherItem: Identifiable {
         case .singleWindow(let w):
             return w.title.isEmpty ? w.appName : w.title
         case .group(let g):
+            if let name = g.displayName {
+                return name
+            }
             guard let active = g.activeWindow else { return "" }
             return active.title.isEmpty ? active.appName : active.title
         }

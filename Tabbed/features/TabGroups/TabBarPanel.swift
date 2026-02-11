@@ -66,6 +66,7 @@ class TabBarPanel: NSPanel {
         onCloseTab: @escaping (Int) -> Void,
         onAddWindow: @escaping () -> Void,
         onAddWindowAfterTab: @escaping (Int) -> Void,
+        onRequestGroupName: @escaping () -> Void,
         onReleaseTabs: @escaping (Set<CGWindowID>) -> Void,
         onMoveToNewGroup: @escaping (Set<CGWindowID>) -> Void,
         onCloseTabs: @escaping (Set<CGWindowID>) -> Void,
@@ -84,6 +85,7 @@ class TabBarPanel: NSPanel {
             onCloseTab: onCloseTab,
             onAddWindow: onAddWindow,
             onAddWindowAfterTab: onAddWindowAfterTab,
+            onRequestGroupName: onRequestGroupName,
             onReleaseTabs: onReleaseTabs,
             onMoveToNewGroup: onMoveToNewGroup,
             onCloseTabs: onCloseTabs,
@@ -290,7 +292,8 @@ class TabBarPanel: NSPanel {
         }
         // Left padding + drag handle area
         let handleWidth: CGFloat = showHandle ? TabBarView.dragHandleWidth : 0
-        let tabContentStartX = leadingPad + handleWidth
+        let groupNameWidth = TabBarView.groupNameReservedWidth(for: group?.name)
+        let tabContentStartX = leadingPad + handleWidth + groupNameWidth
         if point.x < tabContentStartX {
             return true
         }
@@ -303,7 +306,7 @@ class TabBarPanel: NSPanel {
         let tabCount = group?.windows.count ?? 0
         guard tabCount > 0 else { return true }
 
-        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - handleWidth
+        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - handleWidth - groupNameWidth
         let isCompact = tabBarConfig?.style == .compact
 
         let tabContentWidth: CGFloat
@@ -353,13 +356,14 @@ class TabBarPanel: NSPanel {
         let leadingPad: CGFloat = showHandle ? 4 : 2
         let trailingPad: CGFloat = 4
         let handleWidth: CGFloat = showHandle ? TabBarView.dragHandleWidth : 0
+        let groupNameWidth = TabBarView.groupNameReservedWidth(for: group.name)
 
         // Points in top/bottom padding are not on controls
         if point.y < verticalPad || point.y > panelHeight - verticalPad {
             return false
         }
 
-        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - handleWidth
+        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - handleWidth - groupNameWidth
         let isCompact = tabBarConfig.style == .compact
 
         let spacing: CGFloat = tabCount > 1 ? 1 : 0
@@ -373,7 +377,7 @@ class TabBarPanel: NSPanel {
             tabWidth = availableWidth / CGFloat(tabCount)
         }
 
-        let tabContentStartX = leadingPad + handleWidth
+        let tabContentStartX = leadingPad + handleWidth + groupNameWidth
 
         // Approximate the trailing control hit area as the last 22pt of each tab.
         // The actual close/confirm button is a 16×16 square with horizontal padding,

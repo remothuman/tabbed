@@ -13,6 +13,7 @@ class SwitcherController {
     private var items: [SwitcherItem] = []
     private var selectedIndex: Int = 0
     private var style: SwitcherStyle = .appIcons
+    private var namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow
     private(set) var scope: Scope = .global
 
     /// When non-nil, the user is sub-selecting within a group item.
@@ -28,12 +29,18 @@ class SwitcherController {
 
     // MARK: - Show
 
-    func show(items: [SwitcherItem], style: SwitcherStyle, scope: Scope) {
+    func show(
+        items: [SwitcherItem],
+        style: SwitcherStyle,
+        scope: Scope,
+        namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow
+    ) {
         guard !items.isEmpty else { return }
 
         self.items = items
         self.style = style
         self.scope = scope
+        self.namedGroupLabelMode = namedGroupLabelMode
         self.selectedIndex = 0
         self.subSelectedWindowIndex = nil
 
@@ -148,6 +155,7 @@ class SwitcherController {
             items: visible.items,
             selectedIndex: visible.adjustedIndex,
             style: style,
+            namedGroupLabelMode: namedGroupLabelMode,
             showLeadingOverflow: visible.leadingOverflow,
             showTrailingOverflow: visible.trailingOverflow,
             subSelectedWindowIndex: subSelectedWindowIndex,

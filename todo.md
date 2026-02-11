@@ -1,6 +1,23 @@
-- tab all in space to easy to click
-- bug, double clicking to confirm close accidentally double clicks the tab bar and fullscreens
 
+- Window names feature - replace the enter name popup with an inline name solution where you type directly into the tab bar. entering a blank name sets it back to an empty name. right click menu option focuses the text box, but you can also click it if you click in just the right exact spot (however no name should still not take up more space than it is now or if it does as little as possible)
+
+- Feature: New Tab can also launch apps
+- auto detection reliability issues
+- quick switcher performance issues
+- platofrm structure me understanding issues and also refactor?
+- preemptive detailed logging
+- quick switcher when switching to window and back to old window it sometimes opens the app you were just in instead of the window you teid to tab back into
+- quick switcher style
+- quick switcher general reliablitiy
+
+- make settings window show up as window (it does show up in alttab, maybe reconsider what we're targetting)
+- pretection against picking up ui elements as winodws to autojoin
+
+Future:
+- pinned tabs
+
+
+--------
 ## todo:
 
 - [x] fullscreen restoration

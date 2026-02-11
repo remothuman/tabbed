@@ -13,6 +13,7 @@ struct TabBarView: View {
     var onCloseTab: (Int) -> Void
     var onAddWindow: () -> Void
     var onAddWindowAfterTab: (Int) -> Void
+    var onRequestGroupName: () -> Void
     var onReleaseTabs: (Set<CGWindowID>) -> Void
     var onMoveToNewGroup: (Set<CGWindowID>) -> Void
     var onCloseTabs: (Set<CGWindowID>) -> Void
@@ -25,6 +26,24 @@ struct TabBarView: View {
     static let addButtonWidth: CGFloat = 20
     static let maxCompactTabWidth: CGFloat = 240
     static let dragHandleWidth: CGFloat = 16
+    static let groupNameMaxWidth: CGFloat = 180
+    static let groupNameHorizontalPadding: CGFloat = 8
+    static let groupNameFontSize: CGFloat = 11
+
+    static func displayedGroupName(from rawName: String?) -> String? {
+        guard let rawName else { return nil }
+        let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func groupNameReservedWidth(for rawName: String?) -> CGFloat {
+        guard let name = displayedGroupName(from: rawName) else { return 0 }
+        let textWidth = (name as NSString).size(
+            withAttributes: [.font: NSFont.systemFont(ofSize: groupNameFontSize, weight: .semibold)]
+        ).width
+        let contentWidth = min(groupNameMaxWidth, textWidth + groupNameHorizontalPadding * 2)
+        return contentWidth + 6
+    }
 
     // Chrome/Firefox-style horizontal expand transition for new tabs
     private struct HorizontalScale: ViewModifier {
@@ -62,9 +81,10 @@ struct TabBarView: View {
             let tabCount = group.windows.count
             let isCompact = tabBarConfig.style == .compact
             let handleWidth: CGFloat = tabBarConfig.showDragHandle ? Self.dragHandleWidth : 0
+            let groupNameWidth = Self.groupNameReservedWidth(for: group.name)
             let leadingPad: CGFloat = tabBarConfig.showDragHandle ? 4 : 2
             let trailingPad: CGFloat = 4
-            let availableWidth = geo.size.width - leadingPad - trailingPad - Self.addButtonWidth - handleWidth
+            let availableWidth = max(0, geo.size.width - leadingPad - trailingPad - Self.addButtonWidth - handleWidth - groupNameWidth)
             let totalSpacing: CGFloat = tabCount > 1 ? CGFloat(tabCount - 1) : 0
             let equalTabStep: CGFloat = tabCount > 0
                 ? availableWidth / CGFloat(tabCount)
@@ -80,6 +100,9 @@ struct TabBarView: View {
                 HStack(spacing: 1) {
                     if tabBarConfig.showDragHandle {
                         dragHandle
+                    }
+                    if let groupName = Self.displayedGroupName(from: group.name) {
+                        groupNameLabel(groupName)
                     }
                     ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
                         let isDragging = draggingIDs.contains(window.id)
@@ -152,7 +175,7 @@ struct TabBarView: View {
 
                 // Drop indicator line when another group is dragging tabs over this bar
                 if let dropIndex = group.dropIndicatorIndex {
-                    let xPos = Self.horizontalPadding / 2 + handleWidth + tabStep * CGFloat(dropIndex)
+                    let xPos = Self.horizontalPadding / 2 + handleWidth + groupNameWidth + tabStep * CGFloat(dropIndex)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.accentColor)
                         .frame(width: 2, height: 20)
@@ -165,6 +188,10 @@ struct TabBarView: View {
             .coordinateSpace(name: "tabBar")
             .contentShape(Rectangle())
             .contextMenu {
+                Button(group.displayName == nil ? "Name Group…" : "Rename Group…") {
+                    onRequestGroupName()
+                }
+                Divider()
                 Button("Ungroup") {
                     let allIDs = Set(group.windows.map(\.id))
                     selectedIDs = []
@@ -474,6 +501,17 @@ struct TabBarView: View {
             }
         }
         .frame(width: Self.dragHandleWidth)
+    }
+
+    private func groupNameLabel(_ name: String) -> some View {
+        Text(name)
+            .font(.system(size: Self.groupNameFontSize, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, Self.groupNameHorizontalPadding)
+            .frame(width: Self.groupNameReservedWidth(for: name), alignment: .leading)
+            .allowsHitTesting(false)
     }
 
     private var addButton: some View {

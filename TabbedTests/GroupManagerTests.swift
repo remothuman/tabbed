@@ -284,4 +284,11 @@ final class GroupManagerTests: XCTestCase {
         XCTAssertEqual(group?.spaceID, 0)
     }
 
+    func testCreateGroupSetsName() {
+        let gm = GroupManager()
+        let windows = [makeWindow(id: 1), makeWindow(id: 2)]
+        let group = gm.createGroup(with: windows, frame: .zero, name: "Work")
+        XCTAssertEqual(group?.displayName, "Work")
+    }
+
 }

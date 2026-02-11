@@ -82,7 +82,8 @@ extension AppDelegate {
                 with: matchedWindows,
                 frame: restoredFrame,
                 squeezeDelta: effectiveSqueezeDelta,
-                activeIndex: frontmostIndex
+                activeIndex: frontmostIndex,
+                name: snapshot.name
             )
         }
 

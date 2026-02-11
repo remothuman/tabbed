@@ -85,7 +85,8 @@ extension AppDelegate {
         switcherController.show(
             items: items,
             style: switcherConfig.globalStyle,
-            scope: .global
+            scope: .global,
+            namedGroupLabelMode: switcherConfig.namedGroupLabelMode
         )
         if reverse { switcherController.retreat() } else { switcherController.advance() }
         hotkeyManager?.startModifierWatch(modifiers: hotkeyManager?.config.globalSwitcher.modifiers ?? 0)
