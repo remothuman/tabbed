@@ -123,6 +123,8 @@ struct TabBarView: View {
     @State private var groupNameDraft = ""
     @State private var isShiftPressed = false
     @State private var localFlagsMonitor: Any?
+    @State private var globalFlagsMonitor: Any?
+    @State private var shiftPollTimer: Timer?
     @FocusState private var isGroupNameFieldFocused: Bool
 
     var body: some View {
@@ -260,6 +262,7 @@ struct TabBarView: View {
         }
         .onDisappear {
             removeModifierMonitors()
+            stopShiftPolling()
         }
         .onChange(of: group.name) { _ in
             guard !isEditingGroupName else { return }
@@ -286,6 +289,13 @@ struct TabBarView: View {
         }
         .onChange(of: isShiftPressed) { _ in
             confirmingCloseID = nil
+        }
+        .onChange(of: hoveredWindowID) { hovered in
+            if hovered == nil {
+                stopShiftPolling()
+            } else {
+                startShiftPollingIfNeeded()
+            }
         }
     }
 
@@ -445,11 +455,16 @@ struct TabBarView: View {
     // MARK: - Modifiers
 
     private func installModifierMonitors() {
-        guard localFlagsMonitor == nil else { return }
-        isShiftPressed = Self.isShiftPressed(in: NSEvent.modifierFlags)
+        guard localFlagsMonitor == nil, globalFlagsMonitor == nil else { return }
+        isShiftPressed = Self.currentGlobalShiftPressed()
         localFlagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
             isShiftPressed = Self.isShiftPressed(in: event.modifierFlags)
             return event
+        }
+        globalFlagsMonitor = NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { _ in
+            DispatchQueue.main.async {
+                isShiftPressed = Self.currentGlobalShiftPressed()
+            }
         }
     }
 
@@ -458,15 +473,37 @@ struct TabBarView: View {
             NSEvent.removeMonitor(localFlagsMonitor)
             self.localFlagsMonitor = nil
         }
+        if let globalFlagsMonitor {
+            NSEvent.removeMonitor(globalFlagsMonitor)
+            self.globalFlagsMonitor = nil
+        }
     }
 
     private static func isShiftPressed(in flags: NSEvent.ModifierFlags) -> Bool {
         flags.intersection(.deviceIndependentFlagsMask).contains(.shift)
     }
 
+    private static func currentGlobalShiftPressed() -> Bool {
+        CGEventSource.flagsState(.combinedSessionState).contains(.maskShift)
+    }
+
     private func currentShiftPressed() -> Bool {
-        let eventShift = NSApp.currentEvent.map { Self.isShiftPressed(in: $0.modifierFlags) } ?? false
-        return isShiftPressed || eventShift
+        isShiftPressed || Self.currentGlobalShiftPressed()
+    }
+
+    private func startShiftPollingIfNeeded() {
+        guard shiftPollTimer == nil else { return }
+        shiftPollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            let shift = Self.currentGlobalShiftPressed()
+            if shift != isShiftPressed {
+                isShiftPressed = shift
+            }
+        }
+    }
+
+    private func stopShiftPolling() {
+        shiftPollTimer?.invalidate()
+        shiftPollTimer = nil
     }
 
     private func hoverControl(forTabAt index: Int) -> TabHoverControl {
