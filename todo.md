@@ -1,4 +1,18 @@
 
+- improve window size/position syncing, 
+- clean up / simplify code
+
+
+Future/Maybe:
+- hide tab bar mode (just focused on alt tab navigation)
+- maybe: virtual tabs in which they belong to multiple windows (for apps with one window max like codex)
+    - limitation: pretty much unfeasable to be able to switch what space a window is in
+- maybe: tab groups
+
+
+
+
+------------------------------
 - MRU stuff fix, + performance
 
 - unclose window.... if even possible idk. if it was browser can use their native undelete keyboard shortcut and automte that?
