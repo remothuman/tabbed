@@ -387,24 +387,45 @@ final class HotkeyManagerTests: XCTestCase {
 
     // MARK: - Close Tab Tests
 
+    func testDefaultReleaseTabBinding() {
+        let binding = KeyBinding.defaultReleaseTab
+        XCTAssertEqual(binding.modifiers, KeyBinding.hyperModifiers)
+        XCTAssertEqual(binding.keyCode, KeyBinding.keyCodeE)
+        XCTAssertFalse(binding.isUnbound)
+    }
+
+    func testReleaseTabDispatch() {
+        var config = unboundConfig()
+        config.releaseTab = KeyBinding(modifiers: hyperMods, keyCode: KeyBinding.keyCodeE)
+        let manager = HotkeyManager(config: config)
+        var called = false
+        manager.onReleaseTab = { called = true }
+
+        let event = makeKeyDown(keyCode: KeyBinding.keyCodeE, modifiers: hyperMods)
+        let result = manager.handleKeyDown(event)
+
+        XCTAssertTrue(result, "Should suppress Hyper+E for releaseTab")
+        XCTAssertTrue(called, "Should fire onReleaseTab")
+    }
+
     func testDefaultCloseTabBinding() {
         let binding = KeyBinding.defaultCloseTab
         XCTAssertEqual(binding.modifiers, KeyBinding.hyperModifiers)
-        XCTAssertEqual(binding.keyCode, KeyBinding.keyCodeQ)
+        XCTAssertEqual(binding.keyCode, KeyBinding.keyCodeW)
         XCTAssertFalse(binding.isUnbound)
     }
 
     func testCloseTabDispatch() {
         var config = unboundConfig()
-        config.closeTab = KeyBinding(modifiers: hyperMods, keyCode: KeyBinding.keyCodeQ)
+        config.closeTab = KeyBinding(modifiers: hyperMods, keyCode: KeyBinding.keyCodeW)
         let manager = HotkeyManager(config: config)
         var called = false
         manager.onCloseTab = { called = true }
 
-        let event = makeKeyDown(keyCode: KeyBinding.keyCodeQ, modifiers: hyperMods)
+        let event = makeKeyDown(keyCode: KeyBinding.keyCodeW, modifiers: hyperMods)
         let result = manager.handleKeyDown(event)
 
-        XCTAssertTrue(result, "Should suppress Hyper+Q for closeTab")
+        XCTAssertTrue(result, "Should suppress Hyper+W for closeTab")
         XCTAssertTrue(called, "Should fire onCloseTab")
     }
 
@@ -413,7 +434,7 @@ final class HotkeyManagerTests: XCTestCase {
         var called = false
         manager.onCloseTab = { called = true }
 
-        let event = makeKeyDown(keyCode: KeyBinding.keyCodeQ, modifiers: hyperMods)
+        let event = makeKeyDown(keyCode: KeyBinding.keyCodeW, modifiers: hyperMods)
         let result = manager.handleKeyDown(event)
 
         XCTAssertFalse(result, "Should pass through when closeTab is unbound")
@@ -437,7 +458,7 @@ final class HotkeyManagerTests: XCTestCase {
 
         let config = try JSONDecoder().decode(ShortcutConfig.self, from: json)
         XCTAssertEqual(config.closeTab, KeyBinding.defaultCloseTab,
-                       "Missing closeTab key should default to Hyper+Q")
+                       "Missing closeTab key should default to Hyper+W")
     }
 
     func testShortcutConfigRoundTripsWithCloseTab() throws {
@@ -445,5 +466,36 @@ final class HotkeyManagerTests: XCTestCase {
         let data = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(ShortcutConfig.self, from: data)
         XCTAssertEqual(decoded.closeTab, original.closeTab)
+    }
+
+    func testShortcutConfigMigratesLegacyReleaseAndCloseDefaults() {
+        let legacyConfig = ShortcutConfig(
+            newTab: .defaultNewTab,
+            releaseTab: KeyBinding(modifiers: KeyBinding.hyperModifiers, keyCode: KeyBinding.keyCodeW),
+            groupAllInSpace: .defaultGroupAllInSpace,
+            cycleTab: .defaultCycleTab,
+            closeTab: KeyBinding(modifiers: KeyBinding.hyperModifiers, keyCode: KeyBinding.keyCodeQ),
+            switchToTab: (1...9).map { KeyBinding.defaultSwitchToTab($0) },
+            globalSwitcher: .defaultGlobalSwitcher
+        )
+
+        let migrated = legacyConfig.migratedLegacyReleaseAndCloseDefaultsIfNeeded()
+        XCTAssertEqual(migrated.releaseTab, KeyBinding.defaultReleaseTab)
+        XCTAssertEqual(migrated.closeTab, KeyBinding.defaultCloseTab)
+    }
+
+    func testShortcutConfigDoesNotMigrateCustomizedReleaseAndCloseBindings() {
+        let customConfig = ShortcutConfig(
+            newTab: .defaultNewTab,
+            releaseTab: KeyBinding(modifiers: KeyBinding.hyperModifiers, keyCode: KeyBinding.keyCodeW),
+            groupAllInSpace: .defaultGroupAllInSpace,
+            cycleTab: .defaultCycleTab,
+            closeTab: KeyBinding(modifiers: KeyBinding.hyperModifiers, keyCode: KeyBinding.keyCodeE),
+            switchToTab: (1...9).map { KeyBinding.defaultSwitchToTab($0) },
+            globalSwitcher: .defaultGlobalSwitcher
+        )
+
+        let migrated = customConfig.migratedLegacyReleaseAndCloseDefaultsIfNeeded()
+        XCTAssertEqual(migrated, customConfig)
     }
 }

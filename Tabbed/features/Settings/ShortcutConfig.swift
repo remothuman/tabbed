@@ -59,6 +59,26 @@ struct ShortcutConfig: Codable, Equatable {
               let config = try? JSONDecoder().decode(ShortcutConfig.self, from: data) else {
             return .default
         }
-        return config
+        let migrated = config.migratedLegacyReleaseAndCloseDefaultsIfNeeded()
+        if migrated != config {
+            migrated.save()
+        }
+        return migrated
+    }
+
+    /// Migrate historical defaults:
+    /// Hyper+W (release) + Hyper+Q (close) -> Hyper+E (release) + Hyper+W (close).
+    /// Only applies when both legacy defaults are still present.
+    func migratedLegacyReleaseAndCloseDefaultsIfNeeded() -> ShortcutConfig {
+        let legacyReleaseTab = KeyBinding(modifiers: KeyBinding.hyperModifiers, keyCode: KeyBinding.keyCodeW)
+        let legacyCloseTab = KeyBinding(modifiers: KeyBinding.hyperModifiers, keyCode: KeyBinding.keyCodeQ)
+        guard releaseTab == legacyReleaseTab, closeTab == legacyCloseTab else {
+            return self
+        }
+
+        var updated = self
+        updated.releaseTab = .defaultReleaseTab
+        updated.closeTab = .defaultCloseTab
+        return updated
     }
 }

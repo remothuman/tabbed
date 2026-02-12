@@ -407,6 +407,9 @@ extension AppDelegate {
                 guard let panel else { return }
                 self?.closeTabs(withIDs: ids, from: group, panel: panel)
             },
+            onSelectionChanged: { [weak self] ids in
+                self?.selectedTabIDsByGroupID[group.id] = ids
+            },
             onCrossPanelDrop: { [weak self, weak panel] ids, targetGroupID, insertionIndex in
                 guard let panel else { return }
                 self?.moveTabsToExistingGroup(
@@ -627,6 +630,7 @@ extension AppDelegate {
         if barDraggingGroupID == group.id { barDraggingGroupID = nil }
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+        selectedTabIDsByGroupID.removeValue(forKey: group.id)
         globalMRU.removeAll { $0 == .group(group.id) }
 
         if cyclingGroup === group { cyclingGroup = nil }
@@ -653,6 +657,7 @@ extension AppDelegate {
         if barDraggingGroupID == group.id { barDraggingGroupID = nil }
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+        selectedTabIDsByGroupID.removeValue(forKey: group.id)
         globalMRU.removeAll { $0 == .group(group.id) }
 
         if cyclingGroup === group { cyclingGroup = nil }
@@ -680,6 +685,7 @@ extension AppDelegate {
         if barDraggingGroupID == group.id { barDraggingGroupID = nil }
         if autoCaptureGroup === group { deactivateAutoCapture() }
         if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+        selectedTabIDsByGroupID.removeValue(forKey: group.id)
         globalMRU.removeAll { $0 == .group(group.id) }
 
         if cyclingGroup === group { cyclingGroup = nil }
@@ -718,6 +724,15 @@ extension AppDelegate {
         return (group, panel)
     }
 
+    /// Returns selected tab IDs for hotkey actions only when the active group has a true multi-selection.
+    /// Keeps the cache in sync by pruning stale IDs that are no longer in the group.
+    func multiSelectedTabIDsForHotkey(in group: TabGroup) -> Set<CGWindowID>? {
+        guard let selected = selectedTabIDsByGroupID[group.id] else { return nil }
+        let valid = selected.intersection(Set(group.windows.map(\.id)))
+        selectedTabIDsByGroupID[group.id] = valid
+        return valid.count > 1 ? valid : nil
+    }
+
     func mergeGroup(_ source: TabGroup, into target: TabGroup, at insertAt: Int? = nil) {
         guard let sourcePanel = tabBarPanels[source.id] else { return }
         if target.spaceID != 0, source.spaceID != 0, target.spaceID != source.spaceID {
@@ -736,6 +751,7 @@ extension AppDelegate {
         // Clean up source group state (like disbandGroup but without frame expansion)
         if autoCaptureGroup === source { deactivateAutoCapture() }
         if lastActiveGroupID == source.id { lastActiveGroupID = nil }
+        selectedTabIDsByGroupID.removeValue(forKey: source.id)
         globalMRU.removeAll { $0 == .group(source.id) }
         if cyclingGroup === source { cyclingGroup = nil }
         resyncWorkItems[source.id]?.cancel()
@@ -795,11 +811,19 @@ extension AppDelegate {
 
     func handleHotkeyReleaseTab() {
         guard let (group, panel) = activeGroup() else { return }
+        if let ids = multiSelectedTabIDsForHotkey(in: group) {
+            releaseTabs(withIDs: ids, from: group, panel: panel)
+            return
+        }
         releaseTab(at: group.activeIndex, from: group, panel: panel)
     }
 
     func handleHotkeyCloseTab() {
         guard let (group, panel) = activeGroup() else { return }
+        if let ids = multiSelectedTabIDsForHotkey(in: group) {
+            closeTabs(withIDs: ids, from: group, panel: panel)
+            return
+        }
         closeTab(at: group.activeIndex, from: group, panel: panel)
     }
 
@@ -1159,6 +1183,7 @@ extension AppDelegate {
                     if barDraggingGroupID == group.id { barDraggingGroupID = nil }
                     if autoCaptureGroup === group { deactivateAutoCapture() }
                     if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+                    selectedTabIDsByGroupID.removeValue(forKey: group.id)
                     globalMRU.removeAll { $0 == .group(group.id) }
                     if cyclingGroup === group { cyclingGroup = nil }
                     resyncWorkItems[group.id]?.cancel()

@@ -59,6 +59,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var barDragInitialFrame: CGRect?
     /// Debounce token for space-change handling — lets the animation settle before querying.
     var spaceChangeWorkItem: DispatchWorkItem?
+    /// Current tab multi-selection per group (owned by TabBarView, consumed by hotkeys).
+    var selectedTabIDsByGroupID: [UUID: Set<CGWindowID>] = [:]
 
     var isCycleCooldownActive: Bool {
         cycleEndTime.map { Date().timeIntervalSince($0) < Self.cycleCooldownDuration } ?? false

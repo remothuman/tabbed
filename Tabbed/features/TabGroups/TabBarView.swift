@@ -18,6 +18,7 @@ struct TabBarView: View {
     var onReleaseTabs: (Set<CGWindowID>) -> Void
     var onMoveToNewGroup: (Set<CGWindowID>) -> Void
     var onCloseTabs: (Set<CGWindowID>) -> Void
+    var onSelectionChanged: (Set<CGWindowID>) -> Void
     var onCrossPanelDrop: (Set<CGWindowID>, UUID, Int) -> Void
     var onDragOverPanels: (NSPoint) -> CrossPanelDropTarget?
     var onDragEnded: () -> Void
@@ -259,6 +260,7 @@ struct TabBarView: View {
         .onAppear {
             groupNameDraft = group.displayName ?? ""
             installModifierMonitors()
+            onSelectionChanged(selectedIDs)
         }
         .onDisappear {
             removeModifierMonitors()
@@ -280,6 +282,9 @@ struct TabBarView: View {
             if let idx = lastClickedIndex, idx >= group.windows.count {
                 lastClickedIndex = nil
             }
+        }
+        .onChange(of: selectedIDs) { ids in
+            onSelectionChanged(ids)
         }
         .onChange(of: tabBarConfig.closeButtonMode) { _ in
             confirmingCloseID = nil

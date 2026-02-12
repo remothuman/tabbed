@@ -74,6 +74,7 @@ class TabBarPanel: NSPanel {
         onReleaseTabs: @escaping (Set<CGWindowID>) -> Void,
         onMoveToNewGroup: @escaping (Set<CGWindowID>) -> Void,
         onCloseTabs: @escaping (Set<CGWindowID>) -> Void,
+        onSelectionChanged: @escaping (Set<CGWindowID>) -> Void,
         onCrossPanelDrop: @escaping (Set<CGWindowID>, UUID, Int) -> Void,
         onDragOverPanels: @escaping (NSPoint) -> CrossPanelDropTarget?,
         onDragEnded: @escaping () -> Void
@@ -94,6 +95,7 @@ class TabBarPanel: NSPanel {
             onReleaseTabs: onReleaseTabs,
             onMoveToNewGroup: onMoveToNewGroup,
             onCloseTabs: onCloseTabs,
+            onSelectionChanged: onSelectionChanged,
             onCrossPanelDrop: onCrossPanelDrop,
             onDragOverPanels: onDragOverPanels,
             onDragEnded: onDragEnded,
