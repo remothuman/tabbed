@@ -20,9 +20,14 @@ final class BrowserLauncherTests: XCTestCase {
 
     func testCommonSearchProvidersContainsSixAndIncludesKagiAndUnduck() {
         XCTAssertEqual(SearchEngine.commonProviders.count, 6)
+        XCTAssertEqual(SearchEngine.commonProviders.first, .unduck)
         XCTAssertTrue(SearchEngine.commonProviders.contains(.kagi))
         XCTAssertTrue(SearchEngine.commonProviders.contains(.unduck))
         XCTAssertFalse(SearchEngine.commonProviders.contains(.custom))
+    }
+
+    func testAdditionalProvidersContainGoogleModes() {
+        XCTAssertEqual(SearchEngine.additionalProviders, [.googleAI, .googleWeb])
     }
 
     func testCustomSearchTemplateValidationRequiresPercentS() {

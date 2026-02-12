@@ -12,21 +12,28 @@ enum BrowserProviderMode: String, Codable, CaseIterable {
 }
 
 enum SearchEngine: String, Codable, CaseIterable {
+    case unduck
     case google
+    case googleAI
+    case googleWeb
     case duckDuckGo
     case bing
     case brave
     case kagi
-    case unduck
     case custom
 
     static let commonProviders: [SearchEngine] = [
+        .unduck,
         .google,
         .duckDuckGo,
         .bing,
         .brave,
-        .kagi,
-        .unduck
+        .kagi
+    ]
+
+    static let additionalProviders: [SearchEngine] = [
+        .googleAI,
+        .googleWeb
     ]
 
     static let defaultTemplate = "https://www.google.com/search?q=%s"
@@ -35,8 +42,14 @@ enum SearchEngine: String, Codable, CaseIterable {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
         switch rawValue {
+        case Self.unduck.rawValue:
+            self = .unduck
         case Self.google.rawValue:
             self = .google
+        case Self.googleAI.rawValue:
+            self = .googleAI
+        case Self.googleWeb.rawValue:
+            self = .googleWeb
         case Self.duckDuckGo.rawValue:
             self = .duckDuckGo
         case Self.bing.rawValue:
@@ -45,8 +58,6 @@ enum SearchEngine: String, Codable, CaseIterable {
             self = .brave
         case Self.kagi.rawValue:
             self = .kagi
-        case Self.unduck.rawValue:
-            self = .unduck
         case Self.custom.rawValue:
             self = .custom
         default:
@@ -61,8 +72,14 @@ enum SearchEngine: String, Codable, CaseIterable {
 
     var presetTemplate: String? {
         switch self {
+        case .unduck:
+            return "https://unduck.link/?q=%s"
         case .google:
             return "https://www.google.com/search?q=%s"
+        case .googleAI:
+            return "https://www.google.com/search?q=%s&udm=50"
+        case .googleWeb:
+            return "https://www.google.com/search?q=%s&udm=14"
         case .duckDuckGo:
             return "https://duckduckgo.com/?q=%s"
         case .bing:
@@ -71,8 +88,6 @@ enum SearchEngine: String, Codable, CaseIterable {
             return "https://search.brave.com/search?q=%s"
         case .kagi:
             return "https://kagi.com/search?q=%s"
-        case .unduck:
-            return "https://unduck.link/?q=%s"
         case .custom:
             return nil
         }
@@ -101,12 +116,14 @@ enum SearchEngine: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
+        case .unduck: return "Unduck"
         case .google: return "Google"
+        case .googleAI: return "Google (AI)"
+        case .googleWeb: return "Google (Web)"
         case .duckDuckGo: return "DuckDuckGo"
         case .bing: return "Bing"
         case .brave: return "Brave Search"
         case .kagi: return "Kagi"
-        case .unduck: return "Unduck"
         case .custom: return "Custom"
         }
     }

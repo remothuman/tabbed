@@ -45,6 +45,14 @@ final class URLNormalizationTests: XCTestCase {
             SearchEngine.unduck.searchURL(for: "alpha")?.absoluteString,
             "https://unduck.link/?q=alpha"
         )
+        XCTAssertEqual(
+            SearchEngine.googleAI.searchURL(for: "alpha")?.absoluteString,
+            "https://www.google.com/search?q=alpha&udm=50"
+        )
+        XCTAssertEqual(
+            SearchEngine.googleWeb.searchURL(for: "alpha")?.absoluteString,
+            "https://www.google.com/search?q=alpha&udm=14"
+        )
     }
 
     func testCustomTemplateSearchURLGeneration() {

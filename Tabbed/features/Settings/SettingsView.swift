@@ -368,6 +368,11 @@ struct SettingsView: View {
                         ForEach(SearchEngine.commonProviders, id: \.rawValue) { provider in
                             Text(provider.displayName).tag(provider)
                         }
+                        Divider()
+                        ForEach(SearchEngine.additionalProviders, id: \.rawValue) { provider in
+                            Text(provider.displayName).tag(provider)
+                        }
+                        Divider()
                         Text(SearchEngine.custom.displayName).tag(SearchEngine.custom)
                     }
                     .pickerStyle(.menu)
