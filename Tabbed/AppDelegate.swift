@@ -52,7 +52,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     weak var cyclingGroup: TabGroup?
     var cycleEndTime: Date?
     static let cycleCooldownDuration: TimeInterval = 0.15
-    var globalMRU: [MRUEntry] = []
+    var mruTracker = MRUTracker()
     /// Set during tab bar drag to suppress window move/resize handlers for the dragged group.
     var barDraggingGroupID: UUID?
     /// Group frame at bar drag start, for absolute positioning.
@@ -289,10 +289,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         switcherController.dismiss()
         deactivateAutoCapture()
         windowObserver.stopAll()
-        let mruGroupOrder = globalMRU.compactMap { entry -> UUID? in
-            if case .group(let id) = entry { return id } else { return nil }
-        }
-        SessionManager.saveSession(groups: groupManager.groups, mruGroupOrder: mruGroupOrder)
+        SessionManager.saveSession(groups: groupManager.groups, mruGroupOrder: mruTracker.mruGroupOrder())
         for group in groupManager.groups {
             let delta = group.tabBarSqueezeDelta
             guard delta > 0 else { continue }
