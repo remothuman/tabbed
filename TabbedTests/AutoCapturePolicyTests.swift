@@ -67,4 +67,31 @@ final class AutoCapturePolicyTests: XCTestCase {
 
         XCTAssertEqual(pruned, [10])
     }
+
+    func testGroupMatchesModeForMaximizedOrOnlyAllowsEitherCondition() {
+        XCTAssertTrue(
+            AutoCapturePolicy.groupMatchesMode(
+                mode: .whenMaximizedOrOnly,
+                isMaximized: true,
+                isOnlyGroupOnSpace: false
+            )
+        )
+        XCTAssertTrue(
+            AutoCapturePolicy.groupMatchesMode(
+                mode: .whenMaximizedOrOnly,
+                isMaximized: false,
+                isOnlyGroupOnSpace: true
+            )
+        )
+    }
+
+    func testGroupMatchesModeForMaximizedOrOnlyRejectsWhenNeitherConditionApplies() {
+        XCTAssertFalse(
+            AutoCapturePolicy.groupMatchesMode(
+                mode: .whenMaximizedOrOnly,
+                isMaximized: false,
+                isOnlyGroupOnSpace: false
+            )
+        )
+    }
 }

@@ -191,6 +191,7 @@ struct SettingsView: View {
                 Text("Always").tag(AutoCaptureMode.always)
                 Text("When Maximized").tag(AutoCaptureMode.whenMaximized)
                 Text("When Only Group").tag(AutoCaptureMode.whenOnly)
+                Text("Maximized or Only").tag(AutoCaptureMode.whenMaximizedOrOnly)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 12)
@@ -659,6 +660,8 @@ struct SettingsView: View {
             return "New windows join a group when it fills the screen."
         case .whenOnly:
             return "New windows join a group when it's the only one in the space."
+        case .whenMaximizedOrOnly:
+            return "New windows join a group when it fills the screen or when it's the only one in the space."
         }
     }
 

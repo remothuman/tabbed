@@ -54,4 +54,14 @@ final class SessionConfigTests: XCTestCase {
 
         XCTAssertEqual(loaded, config)
     }
+
+    func testDecodeSupportsMaximizedOrOnlyMode() throws {
+        let json = #"{"restoreMode":"smart","autoCaptureMode":"whenMaximizedOrOnly","autoCaptureUnmatchedToNewGroup":false}"#
+            .data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(SessionConfig.self, from: json)
+
+        XCTAssertEqual(decoded.restoreMode, .smart)
+        XCTAssertEqual(decoded.autoCaptureMode, .whenMaximizedOrOnly)
+        XCTAssertFalse(decoded.autoCaptureUnmatchedToNewGroup)
+    }
 }

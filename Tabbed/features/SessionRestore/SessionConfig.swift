@@ -11,6 +11,7 @@ enum AutoCaptureMode: String, Codable, CaseIterable {
     case always        // gobble to most recent group on current space
     case whenMaximized // only when a group fills the screen
     case whenOnly      // when a group is the only one in the space
+    case whenMaximizedOrOnly // when a group is maximized or is the only one in the space
 }
 
 struct SessionConfig: Codable, Equatable {

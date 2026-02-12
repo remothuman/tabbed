@@ -28,6 +28,25 @@ enum AutoCapturePolicy {
     ) -> Set<CGWindowID> {
         Set(suppressedWindowIDs.filter { windowExists($0) })
     }
+
+    static func groupMatchesMode(
+        mode: AutoCaptureMode,
+        isMaximized: Bool,
+        isOnlyGroupOnSpace: Bool
+    ) -> Bool {
+        switch mode {
+        case .never:
+            return false
+        case .always:
+            return true
+        case .whenMaximized:
+            return isMaximized
+        case .whenOnly:
+            return isOnlyGroupOnSpace
+        case .whenMaximizedOrOnly:
+            return isMaximized || isOnlyGroupOnSpace
+        }
+    }
 }
 
 struct AutoCaptureRetryKey: Hashable {
@@ -120,14 +139,31 @@ extension AppDelegate {
                     autoCaptureScreen = newScreen
                 }
             case .whenOnly:
-                let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
-                if groupsOnSpace.count != 1 || groupsOnSpace.first?.id != activeGroup.id {
+                if !isGroupOnlyOnCurrentSpace(activeGroup) {
                     Logger.log("[AutoCapture] evaluate: no longer only group on space, deactivating")
                     deactivateAutoCapture()
                     if shouldCaptureUnmatchedToStandaloneGroup {
                         activateStandaloneAutoCapture()
                     }
                 } else if let newScreen = screenForGroup(activeGroup), newScreen != activeScreen {
+                    Logger.log("[AutoCapture] evaluate: group moved to \(newScreen.localizedName)")
+                    autoCaptureScreen = newScreen
+                }
+            case .whenMaximizedOrOnly:
+                let onlyGroupOnSpace = isGroupOnlyOnCurrentSpace(activeGroup)
+                let (maximized, maximizedScreen) = isGroupMaximized(activeGroup)
+                if !AutoCapturePolicy.groupMatchesMode(
+                    mode: mode,
+                    isMaximized: maximized,
+                    isOnlyGroupOnSpace: onlyGroupOnSpace
+                ) {
+                    Logger.log("[AutoCapture] evaluate: group no longer maximized or only group on space, deactivating")
+                    deactivateAutoCapture()
+                    if shouldCaptureUnmatchedToStandaloneGroup {
+                        activateStandaloneAutoCapture()
+                    }
+                } else if let newScreen = maximizedScreen ?? screenForGroup(activeGroup),
+                          newScreen != activeScreen {
                     Logger.log("[AutoCapture] evaluate: group moved to \(newScreen.localizedName)")
                     autoCaptureScreen = newScreen
                 }
@@ -166,6 +202,23 @@ extension AppDelegate {
                 activateAutoCapture(for: group, on: screen)
                 activatedGroup = true
             }
+        case .whenMaximizedOrOnly:
+            let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
+            let onlyGroupID = groupsOnSpace.count == 1 ? groupsOnSpace.first?.id : nil
+            for group in groupsOnSpace {
+                let (maximized, maximizedScreen) = isGroupMaximized(group)
+                let onlyGroupOnSpace = group.id == onlyGroupID
+                Logger.log("[AutoCapture] evaluate: group \(group.id) — maximized=\(maximized), only=\(onlyGroupOnSpace)")
+                guard AutoCapturePolicy.groupMatchesMode(
+                    mode: mode,
+                    isMaximized: maximized,
+                    isOnlyGroupOnSpace: onlyGroupOnSpace
+                ) else { continue }
+                guard let screen = maximizedScreen ?? screenForGroup(group) else { continue }
+                activateAutoCapture(for: group, on: screen)
+                activatedGroup = true
+                break
+            }
         }
 
         guard !activatedGroup else { return }
@@ -198,6 +251,11 @@ extension AppDelegate {
 
     private func screenForGroup(_ group: TabGroup) -> NSScreen? {
         CoordinateConverter.screen(containingAXPoint: group.frame.origin)
+    }
+
+    private func isGroupOnlyOnCurrentSpace(_ group: TabGroup) -> Bool {
+        let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
+        return groupsOnSpace.count == 1 && groupsOnSpace.first?.id == group.id
     }
 
     func activateAutoCapture(for group: TabGroup, on screen: NSScreen) {
