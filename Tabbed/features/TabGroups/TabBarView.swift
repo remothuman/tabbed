@@ -13,7 +13,8 @@ struct TabBarView: View {
     var onCloseTab: (Int) -> Void
     var onAddWindow: () -> Void
     var onAddWindowAfterTab: (Int) -> Void
-    var onRenameTab: (CGWindowID) -> Void
+    var onBeginTabNameEdit: () -> Void
+    var onCommitTabName: (CGWindowID, String?) -> Void
     var onBeginGroupNameEdit: () -> Void
     var onCommitGroupName: (String?) -> Void
     var onReleaseTabs: (Set<CGWindowID>) -> Void
@@ -206,6 +207,8 @@ struct TabBarView: View {
     @State private var snapIDs: Set<CGWindowID> = []
     @State private var snapOffset: CGFloat = 0
     @State private var tabLeadingXs: [CGWindowID: CGFloat] = [:]
+    @State private var editingTabID: CGWindowID?
+    @State private var tabNameDraft = ""
     @State private var isEditingGroupName = false
     @State private var groupNameDraft = ""
     @State private var isShiftPressed = false
@@ -213,6 +216,7 @@ struct TabBarView: View {
     @State private var globalFlagsMonitor: Any?
     @State private var shiftPollTimer: Timer?
     @FocusState private var isGroupNameFieldFocused: Bool
+    @FocusState private var focusedTabNameID: CGWindowID?
 
     var body: some View {
         GeometryReader { geo in
@@ -395,10 +399,20 @@ struct TabBarView: View {
                 commitGroupNameEdit()
             }
         }
+        .onChange(of: focusedTabNameID) { focusedID in
+            if focusedID == nil {
+                commitTabNameEdit()
+            }
+        }
         .onChange(of: group.windows.count) { _ in
             // Clear stale selection when windows are externally added/removed
             let validIDs = Set(group.windows.map(\.id))
             selectedIDs = selectedIDs.intersection(validIDs)
+            if let editingTabID, !validIDs.contains(editingTabID) {
+                self.editingTabID = nil
+                focusedTabNameID = nil
+                tabNameDraft = ""
+            }
             if let idx = lastClickedIndex, idx >= group.windows.count {
                 lastClickedIndex = nil
             }
@@ -761,16 +775,34 @@ struct TabBarView: View {
                     .foregroundStyle(.secondary)
             }
             if !isPinned {
-                Text(Self.displayedTabTitle(for: window))
+                if editingTabID == window.id {
+                    TextField(
+                        "",
+                        text: $tabNameDraft,
+                        prompt: Text(window.title.isEmpty ? window.appName : window.title)
+                    )
+                    .textFieldStyle(.plain)
                     .lineLimit(1)
-                    .truncationMode(.tail)
                     .font(.system(size: 12))
-                    .foregroundStyle(window.isFullscreened ? .tertiary : isActive ? .primary : .secondary)
+                    .focused($focusedTabNameID, equals: window.id)
+                    .onSubmit {
+                        commitTabNameEdit()
+                    }
+                    .onExitCommand {
+                        cancelTabNameEdit()
+                    }
+                } else {
+                    Text(Self.displayedTabTitle(for: window))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(window.isFullscreened ? .tertiary : isActive ? .primary : .secondary)
+                }
 
                 Spacer(minLength: 0)
             }
 
-            if isHovered && !isSelected && !isPinned {
+            if isHovered && !isSelected && !isPinned && editingTabID != window.id {
                 let control = hoverControl(forTabAt: index)
                 let isConfirmingClose = tabBarConfig.showCloseConfirmation
                     && control == .close
@@ -810,12 +842,17 @@ struct TabBarView: View {
         )
         .contentShape(Rectangle())
         .onTapGesture {
+            guard editingTabID != window.id else { return }
             handleClick(index: index, window: window)
         }
         .onHover { hovering in
             hoveredWindowID = hovering ? window.id : nil
             if !hovering && confirmingCloseID == window.id {
                 confirmingCloseID = nil
+            }
+            if editingTabID == window.id {
+                onTooltipHover?(nil, 0)
+                return
             }
             if tabBarConfig.showTooltip {
                 let title = Self.displayedTabTitle(for: window)
@@ -835,7 +872,7 @@ struct TabBarView: View {
             }
             Button(window.displayedCustomTabName == nil ? "Name Tab…" : "Rename Tab…") {
                 selectedIDs = []
-                onRenameTab(window.id)
+                beginTabNameEditing(for: window, fromContextMenu: true)
             }
             Divider()
             Button(allPinned ? (targets.count == 1 ? "Unpin Tab" : "Unpin Tabs") : (targets.count == 1 ? "Pin Tab" : "Pin Tabs")) {
@@ -937,6 +974,39 @@ struct TabBarView: View {
         groupNameDraft = group.displayName ?? ""
         isEditingGroupName = false
         isGroupNameFieldFocused = false
+    }
+
+    private func beginTabNameEditing(for window: WindowInfo, fromContextMenu: Bool = false) {
+        if let editingTabID, editingTabID != window.id {
+            commitTabNameEdit()
+        }
+        onBeginTabNameEdit()
+        tabNameDraft = window.displayedCustomTabName ?? window.title
+        editingTabID = window.id
+        let delay = fromContextMenu ? DispatchTimeInterval.milliseconds(100) : .milliseconds(0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            focusedTabNameID = window.id
+        }
+    }
+
+    private func commitTabNameEdit() {
+        guard let editingTabID else { return }
+        let trimmed = tabNameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed.isEmpty ? nil : trimmed
+        onCommitTabName(editingTabID, normalized)
+        self.editingTabID = nil
+        focusedTabNameID = nil
+    }
+
+    private func cancelTabNameEdit() {
+        guard let editingTabID else { return }
+        if let window = group.windows.first(where: { $0.id == editingTabID }) {
+            tabNameDraft = window.displayedCustomTabName ?? window.title
+        } else {
+            tabNameDraft = ""
+        }
+        self.editingTabID = nil
+        focusedTabNameID = nil
     }
 
     private var addButton: some View {

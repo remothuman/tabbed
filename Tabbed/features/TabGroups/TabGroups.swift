@@ -389,9 +389,12 @@ extension AppDelegate {
             onAddWindowAfterTab: { [weak self] index in
                 self?.showWindowPicker(addingTo: group, insertAt: index + 1)
             },
-            onRenameTab: { [weak self, weak panel] windowID in
+            onBeginTabNameEdit: { [weak self, weak panel] in
                 guard let self, let panel else { return }
-                self.promptTabRename(withID: windowID, in: group, panel: panel)
+                self.preparePanelForInlineGroupNameEdit(panel, group: group)
+            },
+            onCommitTabName: { [weak self] windowID, rawName in
+                self?.applyTabName(rawName, for: windowID, in: group)
             },
             onBeginGroupNameEdit: { [weak self, weak panel] in
                 guard let self, let panel else { return }
@@ -863,34 +866,11 @@ extension AppDelegate {
         }
     }
 
-    func promptTabRename(withID windowID: CGWindowID, in group: TabGroup, panel: TabBarPanel) {
-        guard let window = group.windows.first(where: { $0.id == windowID }) else { return }
-
-        let alert = NSAlert()
-        alert.messageText = window.displayedCustomTabName == nil ? "Name Tab" : "Rename Tab"
-        alert.informativeText = "Leave empty to use the window title."
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        textField.stringValue = window.displayedCustomTabName ?? ""
-        textField.placeholderString = window.title.isEmpty ? window.appName : window.title
-        alert.accessoryView = textField
-
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-        if let activeWindow = group.activeWindow {
-            panel.orderAbove(windowID: activeWindow.id)
-        }
-
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else { return }
-
+    func applyTabName(_ rawName: String?, for windowID: CGWindowID, in group: TabGroup) {
         let didUpdate = groupManager.updateWindowCustomTabName(
             withID: windowID,
             in: group,
-            to: textField.stringValue
+            to: rawName
         )
         guard didUpdate else { return }
 
