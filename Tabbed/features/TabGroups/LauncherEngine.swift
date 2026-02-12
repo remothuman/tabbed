@@ -144,10 +144,10 @@ final class LauncherEngine {
         let search = buildSearchCandidates(query: query, context: context)
 
         let ranked =
+            sortActions(actions) +
             sortWindows(windows) +
             sortGroups(groups) +
             sortSuggestions(suggestions) +
-            sortActions(actions) +
             sortSearches(search)
 
         Logger.log(
@@ -196,7 +196,7 @@ final class LauncherEngine {
 
         let previewActions = previewActionCandidates(context: context)
 
-        return Array(previewWindows) + previewGroups + previewActions
+        return previewActions + Array(previewWindows) + previewGroups
     }
 
     static func normalizeQuery(_ query: String) -> String {

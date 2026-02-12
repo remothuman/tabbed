@@ -219,6 +219,12 @@ final class LauncherEngineTests: XCTestCase {
 
         let ranked = LauncherEngine().rank(query: "", context: context)
 
+        guard let first = ranked.first else {
+            return XCTFail("Expected at least one candidate")
+        }
+        guard case .groupAllInSpace = first.action else {
+            return XCTFail("Expected Add All in Space action at the top")
+        }
         XCTAssertTrue(ranked.contains {
             if case .groupAllInSpace = $0.action { return true }
             return false
@@ -256,6 +262,12 @@ final class LauncherEngineTests: XCTestCase {
 
         let ranked = LauncherEngine().rank(query: "all in space", context: context)
 
+        guard let first = ranked.first else {
+            return XCTFail("Expected at least one candidate")
+        }
+        guard case .groupAllInSpace = first.action else {
+            return XCTFail("Expected Add All in Space action at the top")
+        }
         XCTAssertTrue(ranked.contains {
             if case .groupAllInSpace = $0.action { return true }
             return false
