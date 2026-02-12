@@ -12,6 +12,7 @@ enum LauncherMode {
 
 enum LauncherAction: Equatable {
     case looseWindow(windowID: CGWindowID)
+    case groupAllInSpace
     case mergeGroup(groupID: UUID)
     case appLaunch(bundleID: String, appURL: URL?, isRunning: Bool)
     case openURL(url: URL)
@@ -139,16 +140,18 @@ final class LauncherEngine {
             now: now,
             hasExplicitURLIntent: hasExplicitURLIntent
         )
+        let actions = buildActionCandidates(query: query, context: context)
         let search = buildSearchCandidates(query: query, context: context)
 
         let ranked =
             sortWindows(windows) +
             sortGroups(groups) +
             sortSuggestions(suggestions) +
+            sortActions(actions) +
             sortSearches(search)
 
         Logger.log(
-            "[LAUNCHER_RANK] ranked windows=\(windows.count) groups=\(groups.count) suggestions=\(suggestions.count) search=\(search.count)"
+            "[LAUNCHER_RANK] ranked windows=\(windows.count) groups=\(groups.count) suggestions=\(suggestions.count) actions=\(actions.count) search=\(search.count)"
         )
         return ranked
     }
@@ -191,7 +194,9 @@ final class LauncherEngine {
             previewGroups = []
         }
 
-        return Array(previewWindows) + previewGroups
+        let previewActions = previewActionCandidates(context: context)
+
+        return Array(previewWindows) + previewGroups + previewActions
     }
 
     static func normalizeQuery(_ query: String) -> String {
@@ -417,6 +422,47 @@ final class LauncherEngine {
         ]
     }
 
+    private func buildActionCandidates(query: String, context: LauncherQueryContext) -> [LauncherCandidate] {
+        guard shouldOfferGroupAllInSpace(context: context) else { return [] }
+
+        let score = scoreMatch(query: query, fields: ["add all in space", "group all in space", "all windows in space"])
+        guard score > 0 else { return [] }
+
+        return [
+            LauncherCandidate(
+                id: "action-group-all-space",
+                action: .groupAllInSpace,
+                tier: 4,
+                score: score,
+                displayName: "Add All in Space",
+                subtitle: "\(context.looseWindows.count) windows",
+                icon: nil,
+                recency: 0,
+                isRunningApp: false,
+                hasNativeNewWindow: true
+            )
+        ]
+    }
+
+    private func previewActionCandidates(context: LauncherQueryContext) -> [LauncherCandidate] {
+        guard shouldOfferGroupAllInSpace(context: context) else { return [] }
+
+        return [
+            LauncherCandidate(
+                id: "action-group-all-space",
+                action: .groupAllInSpace,
+                tier: 4,
+                score: 1,
+                displayName: "Add All in Space",
+                subtitle: "\(context.looseWindows.count) windows",
+                icon: nil,
+                recency: 0,
+                isRunningApp: false,
+                hasNativeNewWindow: true
+            )
+        ]
+    }
+
     private func scoreApp(query: String, app: AppCatalogService.AppRecord) -> Double {
         let base = scoreMatch(query: query, fields: [app.displayName, app.bundleID])
         if app.bundleID.lowercased().hasSuffix(query) {
@@ -528,6 +574,18 @@ final class LauncherEngine {
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
         }
+    }
+
+    private func sortActions(_ candidates: [LauncherCandidate]) -> [LauncherCandidate] {
+        candidates.sorted { lhs, rhs in
+            if lhs.score != rhs.score { return lhs.score > rhs.score }
+            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+        }
+    }
+
+    private func shouldOfferGroupAllInSpace(context: LauncherQueryContext) -> Bool {
+        guard !context.mode.isAddToGroup else { return false }
+        return context.looseWindows.count > 1
     }
 
     private func groupDescriptor(_ group: TabGroup) -> String {

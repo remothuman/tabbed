@@ -1,10 +1,5 @@
-- if there is a clear sign of a url, namely a dot, prioritize it above launchable apps (but not above windows in space). also, new feature: build up a reccomendation system of commonly visited urls (not searches though)
 
-
-
-- platofrm structure me understanding issues and also refactor?
-- preemptive detailed logging
-- improve tests including minimum performance in tests
+- MRU stuff fix, + performance
 
 - quick switcher & MRU improvements
     - quick switcher when switching to window and back to old window it sometimes opens the app you were just in instead of the window you teid to tab back into
@@ -17,21 +12,19 @@
     - mru maybe doesnt get updated on all window changes, just app changes and in-group window changes?, idk
 
 - make settings window show up as window (it does show up in alttab, maybe reconsider what we're targetting)
-- [o] autojoin improvements
-    - autojoin: pretection against picking up ui elements as winodws to autojoin
-    - autojoin: autojoin too agressive with stealing windows that are already open and it steals them when we switch back to them
-        - ie even when we ungroup them then switch back it gobbbles them, should only gobble on app launch
-    - autojoin still sometimes misses windows though
-
-- close buttons default reconsider and make configurable in settings
-    - can turn off confirm to close
-    - maybe make current thing close instead of disjoin
-    - holding shift switches the action between close/release
     
+
 - fullscreen improvements
     - turns out we can draw tab bar (so maybe have it show up on mouse top of screen?)
     - right now behaviro somewhat unspecified. did a feature which i didnt merge, need to redo
 
+
+
+- platofrm structure me understanding issues and also refactor?
+- preemptive detailed logging
+- improve tests including minimum performance in tests
+    
+Small 
 - hyper t when not in a window has option for add all in space
 - option to auto 1-tab-group all new windows if not matched to existing window
 

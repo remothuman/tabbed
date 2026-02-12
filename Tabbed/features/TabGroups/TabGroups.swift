@@ -231,6 +231,19 @@ extension AppDelegate {
             }
             completion(.succeeded)
 
+        case .groupAllInSpace:
+            guard !context.mode.isAddToGroup else {
+                completion(.failed(status: "Action unavailable for this picker"))
+                return
+            }
+            let windows = context.looseWindows
+            guard windows.count > 1 else {
+                completion(.failed(status: "Need at least 2 windows in this space"))
+                return
+            }
+            createGroup(with: windows)
+            completion(.succeeded)
+
         case .mergeGroup(let groupID):
             guard case .addToGroup(let targetGroupID, _) = context.mode,
                   let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),

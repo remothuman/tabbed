@@ -345,6 +345,8 @@ struct AddWindowPaletteView: View {
         switch action {
         case .looseWindow:
             return "macwindow"
+        case .groupAllInSpace:
+            return "rectangle.stack.fill"
         case .mergeGroup:
             return "rectangle.on.rectangle"
         case .appLaunch:

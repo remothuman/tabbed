@@ -210,6 +210,58 @@ final class LauncherEngineTests: XCTestCase {
         XCTAssertFalse(hasNonPreviewType)
     }
 
+    func testEmptyQueryPreviewIncludesAddAllInSpaceWhenNewGroupHasMultipleWindows() {
+        let windows = [
+            makeWindow(id: 1, appName: "Safari", title: "A"),
+            makeWindow(id: 2, appName: "Terminal", title: "B")
+        ]
+        let context = makeContext(mode: .newGroup, looseWindows: windows)
+
+        let ranked = LauncherEngine().rank(query: "", context: context)
+
+        XCTAssertTrue(ranked.contains {
+            if case .groupAllInSpace = $0.action { return true }
+            return false
+        })
+    }
+
+    func testAddAllInSpaceActionHiddenForSingleWindowAndAddToGroupMode() {
+        let multi = [
+            makeWindow(id: 10, appName: "Safari", title: "A"),
+            makeWindow(id: 11, appName: "Terminal", title: "B")
+        ]
+        let singleContext = makeContext(mode: .newGroup, looseWindows: [multi[0]])
+        let addModeContext = makeContext(mode: .addToGroup(targetGroupID: UUID(), targetSpaceID: 1), looseWindows: multi)
+
+        let singleRanked = LauncherEngine().rank(query: "", context: singleContext)
+        let addModeRanked = LauncherEngine().rank(query: "", context: addModeContext)
+
+        XCTAssertFalse(singleRanked.contains {
+            if case .groupAllInSpace = $0.action { return true }
+            return false
+        })
+        XCTAssertFalse(addModeRanked.contains {
+            if case .groupAllInSpace = $0.action { return true }
+            return false
+        })
+    }
+
+    func testQueryMatchesAddAllInSpaceAction() {
+        let windows = [
+            makeWindow(id: 20, appName: "Safari", title: "A"),
+            makeWindow(id: 21, appName: "Terminal", title: "B"),
+            makeWindow(id: 22, appName: "Xcode", title: "C")
+        ]
+        let context = makeContext(mode: .newGroup, looseWindows: windows)
+
+        let ranked = LauncherEngine().rank(query: "all in space", context: context)
+
+        XCTAssertTrue(ranked.contains {
+            if case .groupAllInSpace = $0.action { return true }
+            return false
+        })
+    }
+
     func testURLDisabledKeepsOnlyWebSearchAction() {
         let config = AddWindowLauncherConfig(
             urlLaunchEnabled: false,
