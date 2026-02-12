@@ -50,9 +50,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }()
     let useLegacyWindowPicker = false
     weak var cyclingGroup: TabGroup?
-    var cycleEndTime: Date?
-    static let cycleCooldownDuration: TimeInterval = 0.15
+    var pendingCommitEchoTargetWindowID: CGWindowID?
+    var pendingCommitEchoDeadline: Date?
+    static let commitEchoSuppressionTimeout: TimeInterval = 1.0
     var mruTracker = MRUTracker()
+    var windowInventory = WindowInventory()
     /// Set during tab bar drag to suppress window move/resize handlers for the dragged group.
     var barDraggingGroupID: UUID?
     /// Group frame at bar drag start, for absolute positioning.
@@ -62,8 +64,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Current tab multi-selection per group (owned by TabBarView, consumed by hotkeys).
     var selectedTabIDsByGroupID: [UUID: Set<CGWindowID>] = [:]
 
-    var isCycleCooldownActive: Bool {
-        cycleEndTime.map { Date().timeIntervalSince($0) < Self.cycleCooldownDuration } ?? false
+    var isCommitEchoSuppressionActive: Bool {
+        guard let deadline = pendingCommitEchoDeadline else { return false }
+        return Date() < deadline
     }
 
     var isExplicitQuit = false
@@ -189,6 +192,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotkeyManager = hkm
 
         setupStatusItem()
+        windowInventory.refreshAsync()
 
         // Session restoration
         let sessionConfig = SessionConfig.load()

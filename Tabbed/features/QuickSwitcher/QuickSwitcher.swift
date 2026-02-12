@@ -4,6 +4,37 @@ import AppKit
 
 extension AppDelegate {
 
+    func beginCommitEchoSuppression(targetWindowID: CGWindowID) {
+        pendingCommitEchoTargetWindowID = targetWindowID
+        pendingCommitEchoDeadline = Date().addingTimeInterval(Self.commitEchoSuppressionTimeout)
+    }
+
+    func clearCommitEchoSuppression() {
+        pendingCommitEchoTargetWindowID = nil
+        pendingCommitEchoDeadline = nil
+    }
+
+    /// Suppress post-commit focus echoes until the intended target is observed.
+    /// Once the target is seen, clear suppression on the next main-queue turn so
+    /// paired focus notifications in the same event burst are also ignored.
+    func shouldSuppressCommitEcho(for windowID: CGWindowID) -> Bool {
+        guard let deadline = pendingCommitEchoDeadline,
+              let targetWindowID = pendingCommitEchoTargetWindowID else { return false }
+
+        if Date() >= deadline {
+            clearCommitEchoSuppression()
+            return false
+        }
+
+        if windowID == targetWindowID {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.pendingCommitEchoTargetWindowID == targetWindowID else { return }
+                self.clearCommitEchoSuppression()
+            }
+        }
+        return true
+    }
+
     func recordGlobalActivation(_ entry: MRUEntry) {
         mruTracker.recordActivation(entry)
     }
@@ -15,7 +46,11 @@ extension AppDelegate {
             return
         }
 
-        let zWindows = WindowDiscovery.allSpaces()
+        let zWindows = windowInventory.allSpacesForSwitcher()
+        guard !zWindows.isEmpty else {
+            Logger.log("[GS] inventory empty; refresh in progress")
+            return
+        }
         let items = mruTracker.buildSwitcherItems(groups: groupManager.groups, zOrderedWindows: zWindows)
 
         Logger.log("[GS] groups=\(groupManager.groups.count) mru=\(mruTracker.count) items=\(items.map { $0.isGroup ? "G" : "W" }.joined())")
@@ -46,16 +81,12 @@ extension AppDelegate {
                 group.endCycle()
                 cyclingGroup = nil
             }
-            // Always set cooldown after any switcher commit — suppresses
-            // async focus notifications from our own raiseWindow/activate.
-            cycleEndTime = Date()
             return
         }
         guard let group = cyclingGroup, group.isCycling else { return }
 
         group.endCycle()
         cyclingGroup = nil
-        cycleEndTime = Date()
     }
 
     func handleSwitcherArrow(_ direction: SwitcherController.ArrowDirection) {
@@ -66,6 +97,7 @@ extension AppDelegate {
     func commitSwitcherSelection(_ item: SwitcherItem, subIndex: Int?) {
         switch item {
         case .singleWindow(let window):
+            beginCommitEchoSuppression(targetWindowID: window.id)
             recordGlobalActivation(.window(window.id))
             focusWindow(window)
         case .group(let group):
@@ -73,6 +105,7 @@ extension AppDelegate {
                 group.switchTo(index: subIndex)
             }
             guard let activeWindow = group.activeWindow else { return }
+            beginCommitEchoSuppression(targetWindowID: activeWindow.id)
             recordGlobalActivation(.group(group.id))
             lastActiveGroupID = group.id
             group.recordFocus(windowID: activeWindow.id)
