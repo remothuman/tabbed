@@ -1,5 +1,10 @@
 import SwiftUI
 
+extension Notification.Name {
+    static let tabbedBeginInlineGroupNameEdit = Notification.Name("TabbedBeginInlineGroupNameEdit")
+    static let tabbedBeginInlineTabNameEdit = Notification.Name("TabbedBeginInlineTabNameEdit")
+}
+
 struct CrossPanelDropTarget {
     let groupID: UUID
     let insertionIndex: Int
@@ -36,6 +41,8 @@ struct TabBarView: View {
     static let groupNameFontSize: CGFloat = 11
     static let groupNameEmptyHitWidth: CGFloat = 3
     static let groupNamePlaceholder = "Group name"
+    static let inlineGroupNameEditGroupIDKey = "groupID"
+    static let inlineTabNameEditWindowIDKey = "windowID"
 
     static func displayedGroupName(from rawName: String?) -> String? {
         guard let rawName else { return nil }
@@ -435,6 +442,19 @@ struct TabBarView: View {
             } else {
                 startShiftPollingIfNeeded()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tabbedBeginInlineGroupNameEdit)) { notification in
+            guard let targetGroupID = notification.userInfo?[Self.inlineGroupNameEditGroupIDKey] as? UUID,
+                  targetGroupID == group.id else { return }
+            beginGroupNameEditing(fromContextMenu: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .tabbedBeginInlineTabNameEdit)) { notification in
+            guard let targetGroupID = notification.userInfo?[Self.inlineGroupNameEditGroupIDKey] as? UUID,
+                  targetGroupID == group.id,
+                  let windowIDValue = notification.userInfo?[Self.inlineTabNameEditWindowIDKey] as? Int else { return }
+            let windowID = CGWindowID(windowIDValue)
+            guard let window = group.windows.first(where: { $0.id == windowID }) else { return }
+            beginTabNameEditing(for: window, fromContextMenu: true)
         }
     }
 

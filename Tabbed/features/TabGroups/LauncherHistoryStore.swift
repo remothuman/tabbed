@@ -16,9 +16,35 @@ final class LauncherHistoryStore {
         let lastLaunchedAt: Date
     }
 
+    struct ActionEntry: Codable, Equatable {
+        let actionID: String
+        let launchCount: Int
+        let lastLaunchedAt: Date
+    }
+
     private struct Snapshot: Codable {
         var urls: [URLEntry]
         var apps: [AppEntry]
+        var actions: [ActionEntry]
+
+        init(urls: [URLEntry], apps: [AppEntry], actions: [ActionEntry]) {
+            self.urls = urls
+            self.apps = apps
+            self.actions = actions
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case urls
+            case apps
+            case actions
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            urls = try container.decodeIfPresent([URLEntry].self, forKey: .urls) ?? []
+            apps = try container.decodeIfPresent([AppEntry].self, forKey: .apps) ?? []
+            actions = try container.decodeIfPresent([ActionEntry].self, forKey: .actions) ?? []
+        }
     }
 
     static let defaultStorageKey = "addWindowLauncherHistory.v1"
@@ -28,19 +54,22 @@ final class LauncherHistoryStore {
     private let nowProvider: () -> Date
     private let urlLimit: Int
     private let appLimit: Int
+    private let actionLimit: Int
 
     init(
         userDefaults: UserDefaults = .standard,
         storageKey: String = LauncherHistoryStore.defaultStorageKey,
         nowProvider: @escaping () -> Date = Date.init,
         urlLimit: Int = 300,
-        appLimit: Int = 200
+        appLimit: Int = 200,
+        actionLimit: Int = 100
     ) {
         self.userDefaults = userDefaults
         self.storageKey = storageKey
         self.nowProvider = nowProvider
         self.urlLimit = urlLimit
         self.appLimit = appLimit
+        self.actionLimit = actionLimit
     }
 
     func urlEntries() -> [URLEntry] {
@@ -49,6 +78,10 @@ final class LauncherHistoryStore {
 
     func appEntriesByBundleID() -> [String: AppEntry] {
         Dictionary(uniqueKeysWithValues: loadSnapshot().apps.map { ($0.bundleID, $0) })
+    }
+
+    func actionEntriesByID() -> [String: ActionEntry] {
+        Dictionary(uniqueKeysWithValues: loadSnapshot().actions.map { ($0.actionID, $0) })
     }
 
     func recordURLLaunch(_ url: URL, outcome: LaunchAttemptResult) {
@@ -112,6 +145,38 @@ final class LauncherHistoryStore {
         }
         if snapshot.apps.count > appLimit {
             snapshot.apps = Array(snapshot.apps.prefix(appLimit))
+        }
+
+        saveSnapshot(snapshot)
+    }
+
+    func recordActionUsage(actionID: String, outcome: LaunchAttemptResult) {
+        guard Self.shouldRecord(outcome: outcome) else { return }
+
+        let trimmedActionID = actionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedActionID.isEmpty else { return }
+
+        let now = nowProvider()
+        var snapshot = loadSnapshot()
+
+        if let index = snapshot.actions.firstIndex(where: { $0.actionID == trimmedActionID }) {
+            let existing = snapshot.actions[index]
+            snapshot.actions[index] = ActionEntry(
+                actionID: trimmedActionID,
+                launchCount: existing.launchCount + 1,
+                lastLaunchedAt: now
+            )
+        } else {
+            snapshot.actions.append(ActionEntry(actionID: trimmedActionID, launchCount: 1, lastLaunchedAt: now))
+        }
+
+        snapshot.actions.sort { lhs, rhs in
+            if lhs.lastLaunchedAt != rhs.lastLaunchedAt { return lhs.lastLaunchedAt > rhs.lastLaunchedAt }
+            if lhs.launchCount != rhs.launchCount { return lhs.launchCount > rhs.launchCount }
+            return lhs.actionID.localizedCaseInsensitiveCompare(rhs.actionID) == .orderedAscending
+        }
+        if snapshot.actions.count > actionLimit {
+            snapshot.actions = Array(snapshot.actions.prefix(actionLimit))
         }
 
         saveSnapshot(snapshot)
@@ -191,7 +256,7 @@ final class LauncherHistoryStore {
     private func loadSnapshot() -> Snapshot {
         guard let data = userDefaults.data(forKey: storageKey),
               let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
-            return Snapshot(urls: [], apps: [])
+            return Snapshot(urls: [], apps: [], actions: [])
         }
         return snapshot
     }

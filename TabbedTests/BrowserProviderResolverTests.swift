@@ -70,6 +70,10 @@ final class BrowserProviderResolverTests: XCTestCase {
                 )
             ],
             mergeGroups: [],
+            targetGroupDisplayName: nil,
+            targetGroupWindowCount: nil,
+            targetActiveTabID: nil,
+            targetActiveTabTitle: nil,
             appCatalog: [],
             launcherConfig: config,
             resolvedBrowserProvider: nil,
@@ -78,7 +82,8 @@ final class BrowserProviderResolverTests: XCTestCase {
             groupRecency: [:],
             appRecency: [:],
             urlHistory: [],
-            appLaunchHistory: [:]
+            appLaunchHistory: [:],
+            actionHistory: [:]
         )
 
         let ranked = engine.rank(query: "example.com", context: context)

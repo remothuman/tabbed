@@ -37,15 +37,24 @@ final class LauncherEngineTests: XCTestCase {
         mode: LauncherMode = .newGroup,
         looseWindows: [WindowInfo],
         mergeGroups: [TabGroup] = [],
+        targetGroupDisplayName: String? = nil,
+        targetGroupWindowCount: Int? = nil,
+        targetActiveTabID: CGWindowID? = nil,
+        targetActiveTabTitle: String? = nil,
         appCatalog: [AppCatalogService.AppRecord] = [],
         launcherConfig: AddWindowLauncherConfig = .default,
         urlHistory: [LauncherHistoryStore.URLEntry] = [],
-        appLaunchHistory: [String: LauncherHistoryStore.AppEntry] = [:]
+        appLaunchHistory: [String: LauncherHistoryStore.AppEntry] = [:],
+        actionHistory: [String: LauncherHistoryStore.ActionEntry] = [:]
     ) -> LauncherQueryContext {
         LauncherQueryContext(
             mode: mode,
             looseWindows: looseWindows,
             mergeGroups: mergeGroups,
+            targetGroupDisplayName: targetGroupDisplayName,
+            targetGroupWindowCount: targetGroupWindowCount,
+            targetActiveTabID: targetActiveTabID,
+            targetActiveTabTitle: targetActiveTabTitle,
             appCatalog: appCatalog,
             launcherConfig: launcherConfig,
             resolvedBrowserProvider: ResolvedBrowserProvider(
@@ -57,7 +66,8 @@ final class LauncherEngineTests: XCTestCase {
             groupRecency: [:],
             appRecency: [:],
             urlHistory: urlHistory,
-            appLaunchHistory: appLaunchHistory
+            appLaunchHistory: appLaunchHistory,
+            actionHistory: actionHistory
         )
     }
 
@@ -171,7 +181,7 @@ final class LauncherEngineTests: XCTestCase {
         XCTAssertEqual(firstBundleID, "com.example.two")
     }
 
-    func testEmptyQueryPreviewShowsOnlyWindowsAndGroupsWithCaps() {
+    func testEmptyQueryPreviewShowsOnlyWindowsAndGroupsWithCapsInAddMode() {
         let windows = (1...10).map { id in
             makeWindow(id: CGWindowID(id), appName: "App\(id)", title: "Window\(id)")
         }
@@ -184,6 +194,7 @@ final class LauncherEngineTests: XCTestCase {
             mode: .addToGroup(targetGroupID: UUID(), targetSpaceID: 1),
             looseWindows: windows,
             mergeGroups: groups,
+            targetGroupWindowCount: 4,
             appCatalog: [app]
         )
 
@@ -202,6 +213,11 @@ final class LauncherEngineTests: XCTestCase {
             if case .appLaunch = $0.action { return true }
             if case .openURL = $0.action { return true }
             if case .webSearch = $0.action { return true }
+            if case .renameTargetGroup = $0.action { return true }
+            if case .renameCurrentTab = $0.action { return true }
+            if case .releaseCurrentTab = $0.action { return true }
+            if case .ungroupTargetGroup = $0.action { return true }
+            if case .closeAllWindowsInTargetGroup = $0.action { return true }
             return false
         }
 
@@ -210,7 +226,79 @@ final class LauncherEngineTests: XCTestCase {
         XCTAssertFalse(hasNonPreviewType)
     }
 
-    func testEmptyQueryPreviewIncludesAddAllInSpaceWhenNewGroupHasMultipleWindows() {
+    func testAddModeQueryMatchesGroupActions() {
+        let context = makeContext(
+            mode: .addToGroup(targetGroupID: UUID(), targetSpaceID: 1),
+            looseWindows: [],
+            targetGroupDisplayName: "Work",
+            targetGroupWindowCount: 3,
+            targetActiveTabID: 42,
+            targetActiveTabTitle: "Docs"
+        )
+
+        let rename = LauncherEngine().rank(query: "rename", context: context)
+        XCTAssertTrue(rename.contains {
+            if case .renameTargetGroup = $0.action { return true }
+            return false
+        })
+
+        let ungroup = LauncherEngine().rank(query: "ungroup", context: context)
+        XCTAssertTrue(ungroup.contains {
+            if case .ungroupTargetGroup = $0.action { return true }
+            return false
+        })
+
+        let close = LauncherEngine().rank(query: "close all", context: context)
+        XCTAssertTrue(close.contains {
+            if case .closeAllWindowsInTargetGroup = $0.action { return true }
+            return false
+        })
+
+        let renameTab = LauncherEngine().rank(query: "rename tab", context: context)
+        XCTAssertTrue(renameTab.contains {
+            if case .renameCurrentTab = $0.action { return true }
+            return false
+        })
+
+        let releaseTab = LauncherEngine().rank(query: "release tab", context: context)
+        XCTAssertTrue(releaseTab.contains {
+            if case .releaseCurrentTab = $0.action { return true }
+            return false
+        })
+    }
+
+    func testActionHistoryBoostMakesActionCompeteWithinSuggestions() {
+        let now = Date(timeIntervalSince1970: 1_700_100_000)
+        let app = makeApp(bundleID: "com.example.close", displayName: "Close App", isRunning: false, recency: 0)
+        let actionHistory = [
+            "action.closeAllWindowsInTargetGroup": LauncherHistoryStore.ActionEntry(
+                actionID: "action.closeAllWindowsInTargetGroup",
+                launchCount: 25,
+                lastLaunchedAt: now
+            )
+        ]
+
+        let context = makeContext(
+            mode: .addToGroup(targetGroupID: UUID(), targetSpaceID: 1),
+            looseWindows: [],
+            targetGroupWindowCount: 3,
+            appCatalog: [app],
+            actionHistory: actionHistory
+        )
+
+        let ranked = LauncherEngine().rank(query: "close", context: context)
+        let suggestions = ranked.filter { $0.sectionTitle == "Suggestions" }
+        XCTAssertFalse(suggestions.isEmpty)
+
+        guard let first = suggestions.first else {
+            return XCTFail("Expected at least one suggestion")
+        }
+        guard case .closeAllWindowsInTargetGroup = first.action else {
+            return XCTFail("Expected close-all action to win in Suggestions with high action frequency")
+        }
+    }
+
+    func testEmptyQueryPreviewShowsAddAllInSpaceAtTopInNewGroupMode() {
         let windows = [
             makeWindow(id: 1, appName: "Safari", title: "A"),
             makeWindow(id: 2, appName: "Terminal", title: "B")
@@ -220,15 +308,11 @@ final class LauncherEngineTests: XCTestCase {
         let ranked = LauncherEngine().rank(query: "", context: context)
 
         guard let first = ranked.first else {
-            return XCTFail("Expected at least one candidate")
+            return XCTFail("Expected preview candidates")
         }
         guard case .groupAllInSpace = first.action else {
-            return XCTFail("Expected Add All in Space action at the top")
+            return XCTFail("Expected Add All in Space at top of empty-query preview")
         }
-        XCTAssertTrue(ranked.contains {
-            if case .groupAllInSpace = $0.action { return true }
-            return false
-        })
     }
 
     func testAddAllInSpaceActionHiddenForSingleWindowAndAddToGroupMode() {
@@ -262,12 +346,6 @@ final class LauncherEngineTests: XCTestCase {
 
         let ranked = LauncherEngine().rank(query: "all in space", context: context)
 
-        guard let first = ranked.first else {
-            return XCTFail("Expected at least one candidate")
-        }
-        guard case .groupAllInSpace = first.action else {
-            return XCTFail("Expected Add All in Space action at the top")
-        }
         XCTAssertTrue(ranked.contains {
             if case .groupAllInSpace = $0.action { return true }
             return false

@@ -71,6 +71,10 @@ extension AppDelegate {
                     mode: .newGroup,
                     looseWindows: [],
                     mergeGroups: [],
+                    targetGroupDisplayName: nil,
+                    targetGroupWindowCount: nil,
+                    targetActiveTabID: nil,
+                    targetActiveTabTitle: nil,
                     appCatalog: [],
                     launcherConfig: .default,
                     resolvedBrowserProvider: nil,
@@ -79,7 +83,8 @@ extension AppDelegate {
                     groupRecency: [:],
                     appRecency: [:],
                     urlHistory: [],
-                    appLaunchHistory: [:]
+                    appLaunchHistory: [:],
+                    actionHistory: [:]
                 )
             },
             actionExecutor: { [weak self] action, context, completion in
@@ -170,6 +175,10 @@ extension AppDelegate {
             mode: mode,
             looseWindows: looseWindows,
             mergeGroups: mergeGroups,
+            targetGroupDisplayName: group?.displayName,
+            targetGroupWindowCount: group?.windows.count,
+            targetActiveTabID: group?.activeWindow?.id,
+            targetActiveTabTitle: group?.activeWindow?.displayTitle,
             appCatalog: appCatalog,
             launcherConfig: addWindowLauncherConfig,
             resolvedBrowserProvider: resolvedProvider,
@@ -178,7 +187,8 @@ extension AppDelegate {
             groupRecency: groupRecency,
             appRecency: appRecency,
             urlHistory: launcherHistoryStore.urlEntries(),
-            appLaunchHistory: launcherHistoryStore.appEntriesByBundleID()
+            appLaunchHistory: launcherHistoryStore.appEntriesByBundleID(),
+            actionHistory: launcherHistoryStore.actionEntriesByID()
         )
     }
 
@@ -242,6 +252,9 @@ extension AppDelegate {
                 return
             }
             createGroup(with: windows)
+            if let actionID = action.historyKey {
+                launcherHistoryStore.recordActionUsage(actionID: actionID, outcome: .succeeded)
+            }
             completion(.succeeded)
 
         case .mergeGroup(let groupID):
@@ -252,6 +265,85 @@ extension AppDelegate {
                 return
             }
             mergeGroup(sourceGroup, into: targetGroup, at: insertAt)
+            completion(.succeeded)
+
+        case .renameTargetGroup:
+            guard case .addToGroup(let targetGroupID, _) = context.mode,
+                  let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
+                  let panel = tabBarPanels[targetGroupID] else {
+                completion(.failed(status: "Group is no longer available"))
+                return
+            }
+            preparePanelForInlineGroupNameEdit(panel, group: targetGroup)
+            NotificationCenter.default.post(
+                name: .tabbedBeginInlineGroupNameEdit,
+                object: nil,
+                userInfo: [TabBarView.inlineGroupNameEditGroupIDKey: targetGroup.id]
+            )
+            if let actionID = action.historyKey {
+                launcherHistoryStore.recordActionUsage(actionID: actionID, outcome: .succeeded)
+            }
+            completion(.succeeded)
+
+        case .renameCurrentTab:
+            guard case .addToGroup(let targetGroupID, _) = context.mode,
+                  let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
+                  let panel = tabBarPanels[targetGroupID],
+                  let activeWindow = targetGroup.activeWindow else {
+                completion(.failed(status: "Tab is no longer available"))
+                return
+            }
+            preparePanelForInlineGroupNameEdit(panel, group: targetGroup)
+            NotificationCenter.default.post(
+                name: .tabbedBeginInlineTabNameEdit,
+                object: nil,
+                userInfo: [
+                    TabBarView.inlineGroupNameEditGroupIDKey: targetGroup.id,
+                    TabBarView.inlineTabNameEditWindowIDKey: Int(activeWindow.id)
+                ]
+            )
+            if let actionID = action.historyKey {
+                launcherHistoryStore.recordActionUsage(actionID: actionID, outcome: .succeeded)
+            }
+            completion(.succeeded)
+
+        case .releaseCurrentTab:
+            guard case .addToGroup(let targetGroupID, _) = context.mode,
+                  let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
+                  let panel = tabBarPanels[targetGroupID],
+                  !targetGroup.windows.isEmpty else {
+                completion(.failed(status: "Tab is no longer available"))
+                return
+            }
+            releaseTab(at: targetGroup.activeIndex, from: targetGroup, panel: panel)
+            if let actionID = action.historyKey {
+                launcherHistoryStore.recordActionUsage(actionID: actionID, outcome: .succeeded)
+            }
+            completion(.succeeded)
+
+        case .ungroupTargetGroup:
+            guard case .addToGroup(let targetGroupID, _) = context.mode,
+                  let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }) else {
+                completion(.failed(status: "Group is no longer available"))
+                return
+            }
+            disbandGroup(targetGroup)
+            if let actionID = action.historyKey {
+                launcherHistoryStore.recordActionUsage(actionID: actionID, outcome: .succeeded)
+            }
+            completion(.succeeded)
+
+        case .closeAllWindowsInTargetGroup:
+            guard case .addToGroup(let targetGroupID, _) = context.mode,
+                  let targetGroup = groupManager.groups.first(where: { $0.id == targetGroupID }),
+                  let panel = tabBarPanels[targetGroupID] else {
+                completion(.failed(status: "Group is no longer available"))
+                return
+            }
+            closeTabs(withIDs: Set(targetGroup.windows.map(\.id)), from: targetGroup, panel: panel)
+            if let actionID = action.historyKey {
+                launcherHistoryStore.recordActionUsage(actionID: actionID, outcome: .succeeded)
+            }
             completion(.succeeded)
 
         case .appLaunch(let bundleID, _, _):

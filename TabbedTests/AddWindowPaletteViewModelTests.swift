@@ -7,6 +7,10 @@ final class AddWindowPaletteViewModelTests: XCTestCase {
             mode: .newGroup,
             looseWindows: [],
             mergeGroups: [],
+            targetGroupDisplayName: nil,
+            targetGroupWindowCount: nil,
+            targetActiveTabID: nil,
+            targetActiveTabTitle: nil,
             appCatalog: [],
             launcherConfig: .default,
             resolvedBrowserProvider: nil,
@@ -15,7 +19,8 @@ final class AddWindowPaletteViewModelTests: XCTestCase {
             groupRecency: [:],
             appRecency: [:],
             urlHistory: urlHistory,
-            appLaunchHistory: [:]
+            appLaunchHistory: [:],
+            actionHistory: [:]
         )
     }
 

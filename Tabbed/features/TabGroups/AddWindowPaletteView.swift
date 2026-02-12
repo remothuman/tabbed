@@ -366,6 +366,16 @@ struct AddWindowPaletteView: View {
             return "rectangle.stack.fill"
         case .mergeGroup:
             return "rectangle.on.rectangle"
+        case .renameTargetGroup:
+            return "character.cursor.ibeam"
+        case .renameCurrentTab:
+            return "character.textbox"
+        case .releaseCurrentTab:
+            return "rectangle.badge.minus"
+        case .ungroupTargetGroup:
+            return "rectangle.split.3x1"
+        case .closeAllWindowsInTargetGroup:
+            return "xmark.square"
         case .appLaunch:
             return "app.badge"
         case .openURL:

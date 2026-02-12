@@ -14,9 +14,33 @@ enum LauncherAction: Equatable {
     case looseWindow(windowID: CGWindowID)
     case groupAllInSpace
     case mergeGroup(groupID: UUID)
+    case renameTargetGroup
+    case renameCurrentTab
+    case releaseCurrentTab
+    case ungroupTargetGroup
+    case closeAllWindowsInTargetGroup
     case appLaunch(bundleID: String, appURL: URL?, isRunning: Bool)
     case openURL(url: URL)
     case webSearch(query: String)
+
+    var historyKey: String? {
+        switch self {
+        case .groupAllInSpace:
+            return "action.groupAllInSpace"
+        case .renameTargetGroup:
+            return "action.renameTargetGroup"
+        case .renameCurrentTab:
+            return "action.renameCurrentTab"
+        case .releaseCurrentTab:
+            return "action.releaseCurrentTab"
+        case .ungroupTargetGroup:
+            return "action.ungroupTargetGroup"
+        case .closeAllWindowsInTargetGroup:
+            return "action.closeAllWindowsInTargetGroup"
+        default:
+            return nil
+        }
+    }
 }
 
 struct LauncherCandidate: Identifiable {
@@ -60,6 +84,10 @@ struct LauncherQueryContext {
     let mode: LauncherMode
     let looseWindows: [WindowInfo]
     let mergeGroups: [TabGroup]
+    let targetGroupDisplayName: String?
+    let targetGroupWindowCount: Int?
+    let targetActiveTabID: CGWindowID?
+    let targetActiveTabTitle: String?
     let appCatalog: [AppCatalogService.AppRecord]
     let launcherConfig: AddWindowLauncherConfig
     let resolvedBrowserProvider: ResolvedBrowserProvider?
@@ -69,6 +97,7 @@ struct LauncherQueryContext {
     let appRecency: [String: Int]
     let urlHistory: [LauncherHistoryStore.URLEntry]
     let appLaunchHistory: [String: LauncherHistoryStore.AppEntry]
+    let actionHistory: [String: LauncherHistoryStore.ActionEntry]
 }
 
 enum LaunchAttemptResult: Equatable {
@@ -134,17 +163,16 @@ final class LauncherEngine {
             }
         }
 
+        let actions = buildActionCandidates(query: query, context: context, now: now)
         let suggestions = buildSuggestions(
             query: query,
             context: context,
             now: now,
             hasExplicitURLIntent: hasExplicitURLIntent
-        )
-        let actions = buildActionCandidates(query: query, context: context)
+        ) + actions
         let search = buildSearchCandidates(query: query, context: context)
 
         let ranked =
-            sortActions(actions) +
             sortWindows(windows) +
             sortGroups(groups) +
             sortSuggestions(suggestions) +
@@ -422,22 +450,132 @@ final class LauncherEngine {
         ]
     }
 
-    private func buildActionCandidates(query: String, context: LauncherQueryContext) -> [LauncherCandidate] {
+    private func buildActionCandidates(query: String, context: LauncherQueryContext, now: Date) -> [LauncherCandidate] {
+        if context.mode.isAddToGroup {
+            var actions: [LauncherCandidate] = []
+
+            let renameTitle = context.targetGroupDisplayName == nil ? "Name Group…" : "Rename Group…"
+            let renameScore = scoreMatch(query: query, fields: ["name group", "rename group", "group name"])
+            if renameScore > 0 {
+                let action = LauncherAction.renameTargetGroup
+                let history = action.historyKey.flatMap { context.actionHistory[$0] }
+                actions.append(
+                    LauncherCandidate(
+                        id: "action-rename-target-group",
+                        action: action,
+                        tier: 2,
+                        score: renameScore + actionUsageBoost(entry: history, now: now),
+                        displayName: renameTitle,
+                        subtitle: context.targetGroupDisplayName ?? "Current group",
+                        icon: nil,
+                        recency: history.map { Int($0.lastLaunchedAt.timeIntervalSince1970) } ?? 0,
+                        isRunningApp: false,
+                        hasNativeNewWindow: true
+                    )
+                )
+            }
+
+            let ungroupScore = scoreMatch(query: query, fields: ["ungroup", "release from group", "release all tabs"])
+            if ungroupScore > 0 {
+                let action = LauncherAction.ungroupTargetGroup
+                let history = action.historyKey.flatMap { context.actionHistory[$0] }
+                actions.append(
+                    LauncherCandidate(
+                        id: "action-ungroup-target-group",
+                        action: action,
+                        tier: 2,
+                        score: ungroupScore + actionUsageBoost(entry: history, now: now),
+                        displayName: "Ungroup",
+                        subtitle: "\(context.targetGroupWindowCount ?? 0) windows",
+                        icon: nil,
+                        recency: history.map { Int($0.lastLaunchedAt.timeIntervalSince1970) } ?? 0,
+                        isRunningApp: false,
+                        hasNativeNewWindow: true
+                    )
+                )
+            }
+
+            let closeAllScore = scoreMatch(query: query, fields: ["close all windows", "close group", "close tabs"])
+            if closeAllScore > 0 {
+                let action = LauncherAction.closeAllWindowsInTargetGroup
+                let history = action.historyKey.flatMap { context.actionHistory[$0] }
+                actions.append(
+                    LauncherCandidate(
+                        id: "action-close-all-target-group",
+                        action: action,
+                        tier: 2,
+                        score: closeAllScore + actionUsageBoost(entry: history, now: now),
+                        displayName: "Close All Windows",
+                        subtitle: "\(context.targetGroupWindowCount ?? 0) windows",
+                        icon: nil,
+                        recency: history.map { Int($0.lastLaunchedAt.timeIntervalSince1970) } ?? 0,
+                        isRunningApp: false,
+                        hasNativeNewWindow: true
+                    )
+                )
+            }
+
+            if context.targetActiveTabID != nil {
+                let renameTabScore = scoreMatch(query: query, fields: ["rename tab", "name tab", "tab name"])
+                if renameTabScore > 0 {
+                    let action = LauncherAction.renameCurrentTab
+                    let history = action.historyKey.flatMap { context.actionHistory[$0] }
+                    actions.append(
+                        LauncherCandidate(
+                            id: "action-rename-current-tab",
+                            action: action,
+                            tier: 2,
+                            score: renameTabScore + actionUsageBoost(entry: history, now: now),
+                            displayName: "Rename Current Tab…",
+                            subtitle: context.targetActiveTabTitle ?? "Active tab",
+                            icon: nil,
+                            recency: history.map { Int($0.lastLaunchedAt.timeIntervalSince1970) } ?? 0,
+                            isRunningApp: false,
+                            hasNativeNewWindow: true
+                        )
+                    )
+                }
+
+                let releaseTabScore = scoreMatch(query: query, fields: ["release tab", "release current tab", "remove tab from group"])
+                if releaseTabScore > 0 {
+                    let action = LauncherAction.releaseCurrentTab
+                    let history = action.historyKey.flatMap { context.actionHistory[$0] }
+                    actions.append(
+                        LauncherCandidate(
+                            id: "action-release-current-tab",
+                            action: action,
+                            tier: 2,
+                            score: releaseTabScore + actionUsageBoost(entry: history, now: now),
+                            displayName: "Release Current Tab",
+                            subtitle: context.targetActiveTabTitle ?? "Active tab",
+                            icon: nil,
+                            recency: history.map { Int($0.lastLaunchedAt.timeIntervalSince1970) } ?? 0,
+                            isRunningApp: false,
+                            hasNativeNewWindow: true
+                        )
+                    )
+                }
+            }
+            return actions
+        }
+
         guard shouldOfferGroupAllInSpace(context: context) else { return [] }
 
         let score = scoreMatch(query: query, fields: ["add all in space", "group all in space", "all windows in space"])
         guard score > 0 else { return [] }
 
+        let action = LauncherAction.groupAllInSpace
+        let history = action.historyKey.flatMap { context.actionHistory[$0] }
         return [
             LauncherCandidate(
                 id: "action-group-all-space",
-                action: .groupAllInSpace,
-                tier: 4,
-                score: score,
+                action: action,
+                tier: 2,
+                score: score + actionUsageBoost(entry: history, now: now),
                 displayName: "Add All in Space",
                 subtitle: "\(context.looseWindows.count) windows",
                 icon: nil,
-                recency: 0,
+                recency: history.map { Int($0.lastLaunchedAt.timeIntervalSince1970) } ?? 0,
                 isRunningApp: false,
                 hasNativeNewWindow: true
             )
@@ -446,12 +584,11 @@ final class LauncherEngine {
 
     private func previewActionCandidates(context: LauncherQueryContext) -> [LauncherCandidate] {
         guard shouldOfferGroupAllInSpace(context: context) else { return [] }
-
         return [
             LauncherCandidate(
                 id: "action-group-all-space",
                 action: .groupAllInSpace,
-                tier: 4,
+                tier: 2,
                 score: 1,
                 displayName: "Add All in Space",
                 subtitle: "\(context.looseWindows.count) windows",
@@ -484,6 +621,14 @@ final class LauncherEngine {
         let frequencyBoost = 0.15 * log2(Double(entry.launchCount) + 1)
         let recencyBoost = 0.35 * exp(-hoursSinceLast / 168.0)
         return min(0.5, frequencyBoost + recencyBoost)
+    }
+
+    private func actionUsageBoost(entry: LauncherHistoryStore.ActionEntry?, now: Date) -> Double {
+        guard let entry else { return 0 }
+        let hoursSinceLast = max(0, now.timeIntervalSince(entry.lastLaunchedAt) / 3600)
+        let frequencyBoost = 0.12 * log2(Double(entry.launchCount) + 1)
+        let recencyBoost = 0.2 * exp(-hoursSinceLast / 168.0)
+        return min(0.35, frequencyBoost + recencyBoost)
     }
 
     private func scoreMatch(query: String, fields: [String]) -> Double {
@@ -570,13 +715,6 @@ final class LauncherEngine {
     }
 
     private func sortSearches(_ candidates: [LauncherCandidate]) -> [LauncherCandidate] {
-        candidates.sorted { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-        }
-    }
-
-    private func sortActions(_ candidates: [LauncherCandidate]) -> [LauncherCandidate] {
         candidates.sorted { lhs, rhs in
             if lhs.score != rhs.score { return lhs.score > rhs.score }
             return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending

@@ -39,10 +39,13 @@ final class LauncherHistoryStoreTests: XCTestCase {
         store.recordURLLaunch(URL(string: "https://example.com")!, outcome: .succeeded)
         now = now.addingTimeInterval(30)
         store.recordAppLaunch(bundleID: "com.example.app", outcome: .timedOut(status: "No new window detected"))
+        now = now.addingTimeInterval(30)
+        store.recordActionUsage(actionID: "action.closeAllWindowsInTargetGroup", outcome: .succeeded)
 
         let reloaded = makeStore()
         let urls = reloaded.urlEntries()
         let apps = reloaded.appEntriesByBundleID()
+        let actions = reloaded.actionEntriesByID()
 
         XCTAssertEqual(urls.count, 1)
         XCTAssertEqual(urls[0].urlString, "https://example.com")
@@ -50,6 +53,8 @@ final class LauncherHistoryStoreTests: XCTestCase {
 
         XCTAssertEqual(apps["com.example.app"]?.launchCount, 1)
         XCTAssertEqual(apps["com.example.app"]?.bundleID, "com.example.app")
+        XCTAssertEqual(actions["action.closeAllWindowsInTargetGroup"]?.launchCount, 1)
+        XCTAssertEqual(actions["action.closeAllWindowsInTargetGroup"]?.actionID, "action.closeAllWindowsInTargetGroup")
     }
 
     func testFailedOutcomesAreNotRecorded() {
@@ -57,9 +62,11 @@ final class LauncherHistoryStoreTests: XCTestCase {
 
         store.recordURLLaunch(URL(string: "https://example.com")!, outcome: .failed(status: "Unable to open URL"))
         store.recordAppLaunch(bundleID: "com.example.app", outcome: .failed(status: "Unable to launch app"))
+        store.recordActionUsage(actionID: "action.renameTargetGroup", outcome: .failed(status: "Action failed"))
 
         XCTAssertTrue(store.urlEntries().isEmpty)
         XCTAssertTrue(store.appEntriesByBundleID().isEmpty)
+        XCTAssertTrue(store.actionEntriesByID().isEmpty)
     }
 
     func testFrequencyAndRecencyAffectURLOrdering() {
@@ -119,5 +126,25 @@ final class LauncherHistoryStoreTests: XCTestCase {
 
         store.recordURLLaunch(URL(string: "https://example.com")!, outcome: .succeeded)
         wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testActionUsageAggregatesCountAndRecency() {
+        let store = makeStore()
+
+        store.recordActionUsage(actionID: "action.ungroupTargetGroup", outcome: .succeeded)
+        now = now.addingTimeInterval(10)
+        store.recordActionUsage(actionID: "action.closeAllWindowsInTargetGroup", outcome: .succeeded)
+        now = now.addingTimeInterval(10)
+        store.recordActionUsage(actionID: "action.ungroupTargetGroup", outcome: .timedOut(status: "No-op"))
+
+        let actions = store.actionEntriesByID()
+        XCTAssertEqual(actions["action.ungroupTargetGroup"]?.launchCount, 2)
+        XCTAssertEqual(actions["action.closeAllWindowsInTargetGroup"]?.launchCount, 1)
+
+        guard let ungroupDate = actions["action.ungroupTargetGroup"]?.lastLaunchedAt,
+              let closeDate = actions["action.closeAllWindowsInTargetGroup"]?.lastLaunchedAt else {
+            return XCTFail("Expected both action entries to exist")
+        }
+        XCTAssertGreaterThan(ungroupDate, closeDate)
     }
 }
