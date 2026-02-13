@@ -958,7 +958,7 @@ struct TabBarView: View {
                 Capsule()
                     .fill(Color.secondary.opacity(isHovered ? 0.42 : 0.28))
                     .frame(width: 1.6, height: 12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else if let icon = window.icon {
                 Image(nsImage: icon)
                     .resizable()
