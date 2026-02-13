@@ -94,4 +94,48 @@ final class AutoCapturePolicyTests: XCTestCase {
             )
         )
     }
+
+    func testSelectMostRecentGroupPrefersLastActiveGroup() {
+        let groupA = UUID()
+        let groupB = UUID()
+        let candidates = [groupA, groupB]
+        let mruEntries: [MRUEntry] = [.group(groupA), .group(groupB)]
+
+        let selected = AutoCapturePolicy.selectMostRecentGroupID(
+            candidates: candidates,
+            lastActiveGroupID: groupB,
+            mruEntries: mruEntries
+        )
+
+        XCTAssertEqual(selected, groupB)
+    }
+
+    func testSelectMostRecentGroupFallsBackToMRUWhenLastActiveMissing() {
+        let groupA = UUID()
+        let groupB = UUID()
+        let candidates = [groupA, groupB]
+        let mruEntries: [MRUEntry] = [.window(99), .group(groupB), .group(groupA)]
+
+        let selected = AutoCapturePolicy.selectMostRecentGroupID(
+            candidates: candidates,
+            lastActiveGroupID: UUID(),
+            mruEntries: mruEntries
+        )
+
+        XCTAssertEqual(selected, groupB)
+    }
+
+    func testSelectMostRecentGroupFallsBackToCandidateOrderWhenNoRecency() {
+        let groupA = UUID()
+        let groupB = UUID()
+        let candidates = [groupA, groupB]
+
+        let selected = AutoCapturePolicy.selectMostRecentGroupID(
+            candidates: candidates,
+            lastActiveGroupID: nil,
+            mruEntries: [.window(42)]
+        )
+
+        XCTAssertEqual(selected, groupA)
+    }
 }

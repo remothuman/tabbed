@@ -236,6 +236,7 @@ extension AppDelegate {
             if !group.isCycling {
                 group.recordFocus(windowID: windowID)
             }
+            evaluateAutoCapture()
         }
 
         // Don't drag the group's panel to a different space — the window is about
@@ -343,6 +344,7 @@ extension AppDelegate {
             if !group.isCycling {
                 group.recordFocus(windowID: windowID)
             }
+            evaluateAutoCapture()
         }
 
         if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {

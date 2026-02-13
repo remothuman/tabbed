@@ -47,6 +47,28 @@ enum AutoCapturePolicy {
             return isMaximized || isOnlyGroupOnSpace
         }
     }
+
+    static func selectMostRecentGroupID(
+        candidates: [UUID],
+        lastActiveGroupID: UUID?,
+        mruEntries: [MRUEntry]
+    ) -> UUID? {
+        guard !candidates.isEmpty else { return nil }
+        let candidateSet = Set(candidates)
+
+        if let lastActiveGroupID,
+           candidateSet.contains(lastActiveGroupID) {
+            return lastActiveGroupID
+        }
+
+        for entry in mruEntries {
+            guard case .group(let groupID) = entry,
+                  candidateSet.contains(groupID) else { continue }
+            return groupID
+        }
+
+        return candidates.first
+    }
 }
 
 struct AutoCaptureRetryKey: Hashable {
@@ -105,123 +127,20 @@ extension AppDelegate {
             return
         }
 
-        // Re-validate already-active group
-        if let activeGroup = autoCaptureGroup,
-           let activeScreen = autoCaptureScreen {
-            if !isGroupOnCurrentSpace(activeGroup) {
-                Logger.log("[AutoCapture] evaluate: group not on current space, deactivating")
-                deactivateAutoCapture()
-                if shouldCaptureUnmatchedToStandaloneGroup {
-                    activateStandaloneAutoCapture()
-                }
-                return
-            }
-
-            switch mode {
-            case .never:
-                return // unreachable, handled above
-            case .always:
-                // Always valid as long as it's on current space
-                if let newScreen = screenForGroup(activeGroup), newScreen != activeScreen {
-                    Logger.log("[AutoCapture] evaluate: group moved to \(newScreen.localizedName)")
-                    autoCaptureScreen = newScreen
-                }
-            case .whenMaximized:
-                let (maximized, newScreen) = isGroupMaximized(activeGroup)
-                if !maximized {
-                    Logger.log("[AutoCapture] evaluate: group no longer maximized, deactivating")
-                    deactivateAutoCapture()
-                    if shouldCaptureUnmatchedToStandaloneGroup {
-                        activateStandaloneAutoCapture()
-                    }
-                } else if let newScreen, newScreen != activeScreen {
-                    Logger.log("[AutoCapture] evaluate: group moved to \(newScreen.localizedName)")
-                    autoCaptureScreen = newScreen
-                }
-            case .whenOnly:
-                if !isGroupOnlyOnCurrentSpace(activeGroup) {
-                    Logger.log("[AutoCapture] evaluate: no longer only group on space, deactivating")
-                    deactivateAutoCapture()
-                    if shouldCaptureUnmatchedToStandaloneGroup {
-                        activateStandaloneAutoCapture()
-                    }
-                } else if let newScreen = screenForGroup(activeGroup), newScreen != activeScreen {
-                    Logger.log("[AutoCapture] evaluate: group moved to \(newScreen.localizedName)")
-                    autoCaptureScreen = newScreen
-                }
-            case .whenMaximizedOrOnly:
-                let onlyGroupOnSpace = isGroupOnlyOnCurrentSpace(activeGroup)
-                let (maximized, maximizedScreen) = isGroupMaximized(activeGroup)
-                if !AutoCapturePolicy.groupMatchesMode(
-                    mode: mode,
-                    isMaximized: maximized,
-                    isOnlyGroupOnSpace: onlyGroupOnSpace
-                ) {
-                    Logger.log("[AutoCapture] evaluate: group no longer maximized or only group on space, deactivating")
-                    deactivateAutoCapture()
-                    if shouldCaptureUnmatchedToStandaloneGroup {
-                        activateStandaloneAutoCapture()
-                    }
-                } else if let newScreen = maximizedScreen ?? screenForGroup(activeGroup),
-                          newScreen != activeScreen {
-                    Logger.log("[AutoCapture] evaluate: group moved to \(newScreen.localizedName)")
-                    autoCaptureScreen = newScreen
-                }
-            }
-            return
-        }
-
-        // Try to find a group to activate
         Logger.log("[AutoCapture] evaluate: checking \(groupManager.groups.count) groups for activation (mode=\(mode.rawValue))")
-        var activatedGroup = false
-
-        switch mode {
-        case .never:
+        if let selected = selectedAutoCaptureGroup(for: mode) {
+            if autoCaptureGroup?.id != selected.group.id {
+                Logger.log("[AutoCapture] evaluate: selecting most recent eligible group \(selected.group.id)")
+            }
+            if autoCaptureGroup?.id != selected.group.id || autoCaptureScreen != selected.screen {
+                activateAutoCapture(for: selected.group, on: selected.screen)
+            } else {
+                ensureAutoCaptureObservationActive()
+            }
             return
-        case .always:
-            if let (group, screen) = mostRecentGroupOnCurrentSpace() {
-                activateAutoCapture(for: group, on: screen)
-                activatedGroup = true
-            }
-        case .whenMaximized:
-            for group in groupManager.groups {
-                let onSpace = isGroupOnCurrentSpace(group)
-                let (maximized, screen) = isGroupMaximized(group)
-                Logger.log("[AutoCapture] evaluate: group \(group.id) — onSpace=\(onSpace), maximized=\(maximized)")
-                guard onSpace else { continue }
-                guard maximized, let screen else { continue }
-                activateAutoCapture(for: group, on: screen)
-                activatedGroup = true
-                break
-            }
-        case .whenOnly:
-            let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
-            if groupsOnSpace.count == 1, let group = groupsOnSpace.first,
-               let screen = screenForGroup(group) {
-                Logger.log("[AutoCapture] evaluate: only group on space — \(group.id)")
-                activateAutoCapture(for: group, on: screen)
-                activatedGroup = true
-            }
-        case .whenMaximizedOrOnly:
-            let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
-            let onlyGroupID = groupsOnSpace.count == 1 ? groupsOnSpace.first?.id : nil
-            for group in groupsOnSpace {
-                let (maximized, maximizedScreen) = isGroupMaximized(group)
-                let onlyGroupOnSpace = group.id == onlyGroupID
-                Logger.log("[AutoCapture] evaluate: group \(group.id) — maximized=\(maximized), only=\(onlyGroupOnSpace)")
-                guard AutoCapturePolicy.groupMatchesMode(
-                    mode: mode,
-                    isMaximized: maximized,
-                    isOnlyGroupOnSpace: onlyGroupOnSpace
-                ) else { continue }
-                guard let screen = maximizedScreen ?? screenForGroup(group) else { continue }
-                activateAutoCapture(for: group, on: screen)
-                activatedGroup = true
-                break
-            }
         }
 
-        guard !activatedGroup else { return }
+        Logger.log("[AutoCapture] evaluate: no eligible group for mode=\(mode.rawValue)")
         if shouldCaptureUnmatchedToStandaloneGroup {
             activateStandaloneAutoCapture()
         } else {
@@ -229,24 +148,69 @@ extension AppDelegate {
         }
     }
 
-    /// Find the most recently used group on the current space via MRU.
-    /// Falls back to the first group on the current space if none appear in MRU.
-    private func mostRecentGroupOnCurrentSpace() -> (TabGroup, NSScreen)? {
-        // Walk MRU for most recent group on current space
-        for entry in mruTracker.entries {
-            guard case .group(let id) = entry,
-                  let group = groupManager.groups.first(where: { $0.id == id }),
-                  isGroupOnCurrentSpace(group),
-                  let screen = screenForGroup(group) else { continue }
-            return (group, screen)
+    private func selectedAutoCaptureGroup(for mode: AutoCaptureMode) -> (group: TabGroup, screen: NSScreen)? {
+        switch mode {
+        case .never:
+            return nil
+        case .always:
+            let candidates = groupManager.groups.compactMap { group -> (group: TabGroup, screen: NSScreen)? in
+                guard isGroupOnCurrentSpace(group),
+                      let screen = screenForGroup(group) else { return nil }
+                return (group: group, screen: screen)
+            }
+            return mostRecentCandidate(from: candidates)
+        case .whenMaximized:
+            let candidates = groupManager.groups.compactMap { group -> (group: TabGroup, screen: NSScreen)? in
+                let onSpace = isGroupOnCurrentSpace(group)
+                let (maximized, screen) = isGroupMaximized(group)
+                Logger.log("[AutoCapture] evaluate: group \(group.id) — onSpace=\(onSpace), maximized=\(maximized)")
+                guard onSpace,
+                      maximized,
+                      let screen else { return nil }
+                return (group: group, screen: screen)
+            }
+            return mostRecentCandidate(from: candidates)
+        case .whenOnly:
+            let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
+            guard groupsOnSpace.count == 1,
+                  let group = groupsOnSpace.first,
+                  let screen = screenForGroup(group) else { return nil }
+            Logger.log("[AutoCapture] evaluate: only group on space — \(group.id)")
+            return (group: group, screen: screen)
+        case .whenMaximizedOrOnly:
+            let groupsOnSpace = groupManager.groups.filter { isGroupOnCurrentSpace($0) }
+            let onlyGroupID = groupsOnSpace.count == 1 ? groupsOnSpace.first?.id : nil
+
+            let candidates = groupsOnSpace.compactMap { group -> (group: TabGroup, screen: NSScreen)? in
+                let (maximized, maximizedScreen) = isGroupMaximized(group)
+                let onlyGroupOnSpace = group.id == onlyGroupID
+                Logger.log("[AutoCapture] evaluate: group \(group.id) — maximized=\(maximized), only=\(onlyGroupOnSpace)")
+                guard AutoCapturePolicy.groupMatchesMode(
+                    mode: mode,
+                    isMaximized: maximized,
+                    isOnlyGroupOnSpace: onlyGroupOnSpace
+                ) else { return nil }
+                guard let screen = maximizedScreen ?? screenForGroup(group) else { return nil }
+                return (group: group, screen: screen)
+            }
+
+            return mostRecentCandidate(from: candidates)
         }
-        // Fallback: first group on current space
-        for group in groupManager.groups {
-            guard isGroupOnCurrentSpace(group),
-                  let screen = screenForGroup(group) else { continue }
-            return (group, screen)
+    }
+
+    private func mostRecentCandidate(
+        from candidates: [(group: TabGroup, screen: NSScreen)]
+    ) -> (group: TabGroup, screen: NSScreen)? {
+        guard !candidates.isEmpty else { return nil }
+        let candidateIDs = candidates.map { $0.group.id }
+        guard let selectedID = AutoCapturePolicy.selectMostRecentGroupID(
+            candidates: candidateIDs,
+            lastActiveGroupID: lastActiveGroupID,
+            mruEntries: mruTracker.entries
+        ) else {
+            return nil
         }
-        return nil
+        return candidates.first(where: { $0.group.id == selectedID }) ?? candidates.first
     }
 
     private func screenForGroup(_ group: TabGroup) -> NSScreen? {

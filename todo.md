@@ -3,6 +3,12 @@
 
 - tests
 
+- command n stuff not working
+
+- 
+
+maybe: center tab text
+
 
 
 - improve window size/position syncing, 
