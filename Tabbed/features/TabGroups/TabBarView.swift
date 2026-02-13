@@ -36,6 +36,7 @@ struct TabBarView: View {
     static let maxCompactTabWidth: CGFloat = 240
     static let dragHandleWidth: CGFloat = 16
     static let tabSpacing: CGFloat = 1
+    static let pinnedSectionSpacing: CGFloat = 8
     static let pinnedTabIdealWidth: CGFloat = 40
     static let separatorWidthMultiplier: CGFloat = 0.5
     static let groupNameMaxWidth: CGFloat = 180
@@ -93,6 +94,23 @@ struct TabBarView: View {
         return (pinnedWidth, unpinnedWidth)
     }
 
+    static func tabGap(after index: Int, tabs: [WindowInfo]) -> CGFloat {
+        guard index >= 0, index < tabs.count - 1 else { return 0 }
+        let pinnedCount = tabs.filter { $0.isPinned && !$0.isSeparator }.count
+        let hasPinnedSectionBoundary = pinnedCount > 0 && pinnedCount < tabs.count
+        if hasPinnedSectionBoundary && index == pinnedCount - 1 {
+            return tabSpacing + pinnedSectionSpacing
+        }
+        return tabSpacing
+    }
+
+    static func totalTabSpacing(tabs: [WindowInfo]) -> CGFloat {
+        guard tabs.count > 1 else { return 0 }
+        return (0..<(tabs.count - 1)).reduce(CGFloat(0)) { partial, index in
+            partial + tabGap(after: index, tabs: tabs)
+        }
+    }
+
     struct TabWidthLayout {
         let widths: [CGFloat]
         let pinnedWidth: CGFloat
@@ -107,9 +125,8 @@ struct TabBarView: View {
         guard !tabs.isEmpty else {
             return TabWidthLayout(widths: [], pinnedWidth: 0, unpinnedUnitWidth: 0)
         }
-        let tabCount = tabs.count
         let pinnedCount = tabs.filter { $0.isPinned && !$0.isSeparator }.count
-        let spacingWidth = CGFloat(max(0, tabCount - 1)) * tabSpacing
+        let spacingWidth = totalTabSpacing(tabs: tabs)
         let widthAfterSpacing = max(0, availableWidth - spacingWidth)
         let unpinnedWeight = tabs.reduce(CGFloat(0)) { partial, tab in
             if tab.isPinned && !tab.isSeparator { return partial }
@@ -160,6 +177,11 @@ struct TabBarView: View {
         return tabWidths.reduce(0, +) + spacingWidth
     }
 
+    static func tabContentWidth(tabWidths: [CGFloat], tabs: [WindowInfo]) -> CGFloat {
+        guard !tabWidths.isEmpty else { return 0 }
+        return tabWidths.reduce(0, +) + totalTabSpacing(tabs: tabs)
+    }
+
     static func insertionOffsetX(
         for insertionIndex: Int,
         pinnedCount: Int,
@@ -179,6 +201,20 @@ struct TabBarView: View {
         let clampedIndex = max(0, min(insertionIndex, tabWidths.count))
         guard clampedIndex > 0 else { return 0 }
         return tabWidths.prefix(clampedIndex).reduce(0, +) + CGFloat(clampedIndex) * tabSpacing
+    }
+
+    static func insertionOffsetX(for insertionIndex: Int, tabWidths: [CGFloat], tabs: [WindowInfo]) -> CGFloat {
+        guard !tabWidths.isEmpty else { return 0 }
+        let clampedIndex = max(0, min(insertionIndex, tabWidths.count))
+        guard clampedIndex > 0 else { return 0 }
+        var cursor: CGFloat = 0
+        for index in 0..<clampedIndex {
+            cursor += tabWidths[index]
+            if index < clampedIndex - 1 {
+                cursor += tabGap(after: index, tabs: tabs)
+            }
+        }
+        return cursor
     }
 
     static func insertionIndexForPoint(
@@ -213,6 +249,18 @@ struct TabBarView: View {
                 return index
             }
             cursor += width + tabSpacing
+        }
+        return tabWidths.count
+    }
+
+    static func insertionIndexForPoint(localTabX: CGFloat, tabWidths: [CGFloat], tabs: [WindowInfo]) -> Int {
+        guard !tabWidths.isEmpty else { return 0 }
+        var cursor: CGFloat = 0
+        for (index, width) in tabWidths.enumerated() {
+            if localTabX < cursor + width / 2 {
+                return index
+            }
+            cursor += width + tabGap(after: index, tabs: tabs)
         }
         return tabWidths.count
     }
@@ -381,6 +429,11 @@ struct TabBarView: View {
                                         }
                                     }
                             )
+                        if index == pinnedCount - 1 && pinnedCount > 0 && pinnedCount < tabCount {
+                            Color.clear
+                                .frame(width: Self.pinnedSectionSpacing, height: 1)
+                                .allowsHitTesting(false)
+                        }
                     }
                     addButton
 
@@ -410,7 +463,11 @@ struct TabBarView: View {
 
                 // Drop indicator line when another group is dragging tabs over this bar
                 if let dropIndex = group.dropIndicatorIndex {
-                    let xPos = tabContentStartX + Self.insertionOffsetX(for: dropIndex, tabWidths: widthLayout.widths)
+                    let xPos = tabContentStartX + Self.insertionOffsetX(
+                        for: dropIndex,
+                        tabWidths: widthLayout.widths,
+                        tabs: group.windows
+                    )
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.accentColor)
                         .frame(width: 2, height: 20)
@@ -571,16 +628,16 @@ struct TabBarView: View {
               let sourceWidth = tabWidths[safe: sourceIndex] else {
             return 0
         }
-        return sourceWidth + Self.tabSpacing
+        return sourceWidth + Self.tabGap(after: sourceIndex, tabs: group.windows)
     }
 
-    private static func tabCenters(tabWidths: [CGFloat]) -> [CGFloat] {
+    private static func tabCenters(tabWidths: [CGFloat], tabs: [WindowInfo]) -> [CGFloat] {
         var centers: [CGFloat] = []
         centers.reserveCapacity(tabWidths.count)
         var cursor: CGFloat = 0
-        for width in tabWidths {
+        for (index, width) in tabWidths.enumerated() {
             centers.append(cursor + width / 2)
-            cursor += width + tabSpacing
+            cursor += width + tabGap(after: index, tabs: tabs)
         }
         return centers
     }
@@ -594,7 +651,7 @@ struct TabBarView: View {
             let positions = Int(round(dragTranslation / fallbackStep))
             rawTarget = max(0, min(group.windows.count - 1, dragStartIndex + positions))
         } else {
-            let centers = Self.tabCenters(tabWidths: tabWidths)
+            let centers = Self.tabCenters(tabWidths: tabWidths, tabs: group.windows)
             guard dragStartIndex >= 0, dragStartIndex < centers.count else { return nil }
             let draggedCenter = centers[dragStartIndex] + dragTranslation
             var nearestIndex = dragStartIndex
@@ -707,7 +764,7 @@ struct TabBarView: View {
                   target >= 0, target < tabWidths.count else {
                 return CGFloat(target - dragStartIndex) * tabStep
             }
-            let centers = Self.tabCenters(tabWidths: tabWidths)
+            let centers = Self.tabCenters(tabWidths: tabWidths, tabs: group.windows)
             return centers[target] - centers[dragStartIndex]
         }()
         let residual = dragTranslation - exactTranslation

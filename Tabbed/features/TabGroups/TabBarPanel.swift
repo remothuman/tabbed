@@ -326,7 +326,7 @@ class TabBarPanel: NSPanel {
             tabs: group?.windows ?? [],
             style: style
         )
-        let tabContentWidth = TabBarView.tabContentWidth(tabWidths: layout.widths)
+        let tabContentWidth = TabBarView.tabContentWidth(tabWidths: layout.widths, tabs: group?.windows ?? [])
 
         let tabContentEndX = tabContentStartX + groupNameWidth + tabContentWidth
 
@@ -389,7 +389,7 @@ class TabBarPanel: NSPanel {
             let tab = group.windows[index]
             // Pinned tabs don't show trailing close/release controls.
             if tab.isPinned || tab.isSeparator {
-                tabOriginX += (layout.widths[safe: index] ?? 0) + TabBarView.tabSpacing
+                tabOriginX += (layout.widths[safe: index] ?? 0) + TabBarView.tabGap(after: index, tabs: group.windows)
                 continue
             }
             let tabWidth = layout.widths[safe: index] ?? 0
@@ -399,7 +399,7 @@ class TabBarPanel: NSPanel {
             if point.x >= controlStartX && point.x <= tabEndX {
                 return true
             }
-            tabOriginX += tabWidth + TabBarView.tabSpacing
+            tabOriginX += tabWidth + TabBarView.tabGap(after: index, tabs: group.windows)
         }
 
         return false

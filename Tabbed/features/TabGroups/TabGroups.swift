@@ -1161,7 +1161,11 @@ extension AppDelegate {
             let localX = mouseLocation.x - panel.frame.origin.x
             let tabContentStartX = leadingPad + handleWidth + groupNameWidth
             let localTabX = localX - tabContentStartX
-            let insertionIndex = TabBarView.insertionIndexForPoint(localTabX: localTabX, tabWidths: layout.widths)
+            let insertionIndex = TabBarView.insertionIndexForPoint(
+                localTabX: localTabX,
+                tabWidths: layout.widths,
+                tabs: group.windows
+            )
 
             return CrossPanelDropTarget(groupID: groupID, insertionIndex: insertionIndex)
         }

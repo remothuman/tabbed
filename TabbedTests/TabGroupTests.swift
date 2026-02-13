@@ -490,6 +490,38 @@ final class TabGroupTests: XCTestCase {
         XCTAssertEqual(layout.widths[2], layout.widths[0], accuracy: 0.01)
     }
 
+    func testTabGapAddsExtraSpacingAtPinnedBoundary() {
+        var pinned = makeWindow(id: 1)
+        pinned.isPinned = true
+        let tabs = [pinned, makeWindow(id: 2), makeWindow(id: 3)]
+
+        XCTAssertEqual(
+            TabBarView.tabGap(after: 0, tabs: tabs),
+            TabBarView.tabSpacing + TabBarView.pinnedSectionSpacing,
+            accuracy: 0.01
+        )
+        XCTAssertEqual(TabBarView.tabGap(after: 1, tabs: tabs), TabBarView.tabSpacing, accuracy: 0.01)
+    }
+
+    func testTabContentWidthIncludesPinnedBoundaryGap() {
+        var pinned = makeWindow(id: 1)
+        pinned.isPinned = true
+        let tabs = [pinned, makeWindow(id: 2), makeWindow(id: 3)]
+        let widths: [CGFloat] = [40, 100, 100]
+
+        XCTAssertEqual(TabBarView.tabContentWidth(tabWidths: widths, tabs: tabs), 250, accuracy: 0.01)
+    }
+
+    func testInsertionGeometryWithTabsAccountsForPinnedBoundaryGap() {
+        var pinned = makeWindow(id: 1)
+        pinned.isPinned = true
+        let tabs = [pinned, makeWindow(id: 2), makeWindow(id: 3)]
+        let widths: [CGFloat] = [40, 100, 100]
+
+        XCTAssertEqual(TabBarView.insertionOffsetX(for: 2, tabWidths: widths, tabs: tabs), 149, accuracy: 0.01)
+        XCTAssertEqual(TabBarView.insertionIndexForPoint(localTabX: 95, tabWidths: widths, tabs: tabs), 1)
+    }
+
     func testInsertionIndexForPointUsesPinnedGeometry() {
         let tabCount = 3
         let pinnedCount = 1
