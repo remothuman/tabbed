@@ -138,4 +138,21 @@ final class AutoCapturePolicyTests: XCTestCase {
 
         XCTAssertEqual(selected, groupA)
     }
+
+    func testSelectMostRecentGroupConsidersGroupWindowEntries() {
+        let groupA = UUID()
+        let groupB = UUID()
+        let candidates = [groupA, groupB]
+
+        let selected = AutoCapturePolicy.selectMostRecentGroupID(
+            candidates: candidates,
+            lastActiveGroupID: nil,
+            mruEntries: [
+                .groupWindow(groupID: groupB, windowID: 90),
+                .groupWindow(groupID: groupA, windowID: 80)
+            ]
+        )
+
+        XCTAssertEqual(selected, groupB)
+    }
 }

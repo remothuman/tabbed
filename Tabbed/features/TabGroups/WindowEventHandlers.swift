@@ -321,7 +321,7 @@ extension AppDelegate {
         // Record entity-level MRU (skip during active switcher sessions and commit echoes)
         if !suppressGroupState {
             if let group = groupManager.group(for: windowID) {
-                recordGlobalActivation(.group(group.id))
+                recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
             } else {
                 recordGlobalActivation(.window(windowID))
             }

@@ -178,6 +178,63 @@ final class SwitcherControllerTests: XCTestCase {
         XCTAssertNil(controller.subSelectedWindowIndex)
     }
 
+    func testCycleWithinGroupSplitPinnedTabsUsesPinnedSegmentOnly() {
+        let controller = SwitcherController()
+        var w1 = makeWindow(id: 130, appName: "A")
+        var w2 = makeWindow(id: 131, appName: "B")
+        let w3 = makeWindow(id: 132, appName: "C")
+        let w4 = makeWindow(id: 133, appName: "D")
+        w1.isPinned = true
+        w2.isPinned = true
+        let group = TabGroup(windows: [w1, w2, w3, w4], frame: .zero)
+
+        let items = [SwitcherItem.group(group)]
+        controller.show(
+            items: items,
+            style: .appIcons,
+            scope: .global,
+            splitPinnedTabsIntoSeparateGroup: true
+        )
+
+        controller.cycleWithinGroup()
+        XCTAssertEqual(controller.subSelectedWindowIndex, 1)
+    }
+
+    func testCycleWithinGroupSplitOnSeparatorsUsesActiveSeparatorSection() {
+        let controller = SwitcherController()
+        let w1 = makeWindow(id: 140, appName: "A")
+        let separator = WindowInfo.separator(withID: 4_000_001_000)
+        let w2 = makeWindow(id: 141, appName: "B")
+        let w3 = makeWindow(id: 142, appName: "C")
+        let group = TabGroup(windows: [w1, separator, w2, w3], frame: .zero)
+        group.switchTo(index: 2)
+
+        let items = [SwitcherItem.group(group)]
+        controller.show(
+            items: items,
+            style: .appIcons,
+            scope: .global,
+            splitSeparatedTabsIntoSeparateGroups: true
+        )
+
+        controller.cycleWithinGroup()
+        XCTAssertEqual(controller.subSelectedWindowIndex, 2)
+    }
+
+    func testCycleWithinGroupForGroupSegmentUsesOnlySegmentWindows() {
+        let controller = SwitcherController()
+        let w1 = makeWindow(id: 150, appName: "A")
+        let w2 = makeWindow(id: 151, appName: "B")
+        let w3 = makeWindow(id: 152, appName: "C")
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+
+        let items = [SwitcherItem.groupSegment(group, windowIDs: [151, 152])]
+        controller.show(items: items, style: .appIcons, scope: .global)
+
+        controller.cycleWithinGroup()
+        XCTAssertEqual(controller.subSelectedWindowIndex, 1)
+    }
+
     // MARK: - cycleWithinGroupBackward
 
     func testCycleWithinGroupBackward() {
@@ -260,6 +317,24 @@ final class SwitcherControllerTests: XCTestCase {
         controller.onCommit = { _, subIdx in committedSubIndex = subIdx }
         controller.commit()
         XCTAssertNotNil(committedSubIndex)
+    }
+
+    func testCommitPassesSegmentLocalSubSelectionForGroupSegment() {
+        let controller = SwitcherController()
+        let w1 = makeWindow(id: 180, appName: "A")
+        let w2 = makeWindow(id: 181, appName: "B")
+        let w3 = makeWindow(id: 182, appName: "C")
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+
+        let items = [SwitcherItem.groupSegment(group, windowIDs: [181, 182])]
+        controller.show(items: items, style: .appIcons, scope: .global)
+        controller.cycleWithinGroup() // selects 182 (segment-local index 1)
+
+        var committedSubIndex: Int?
+        controller.onCommit = { _, subIdx in committedSubIndex = subIdx }
+        controller.commit()
+
+        XCTAssertEqual(committedSubIndex, 1)
     }
 
     // MARK: - handleArrowKey

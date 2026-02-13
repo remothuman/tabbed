@@ -11,6 +11,8 @@ class SwitcherController {
 
     private var panel: SwitcherPanel?
     private var session = SwitcherSession()
+    private var splitPinnedTabsIntoSeparateGroup = false
+    private var splitSeparatedTabsIntoSeparateGroups = false
     var scope: Scope { session.scope }
 
     /// Stable sub-selection identity for group entries.
@@ -23,11 +25,10 @@ class SwitcherController {
         guard session.scope == .global,
               session.hasItems,
               session.selectedIndex < session.items.count,
-              case .group(let group) = session.items[session.selectedIndex],
-              let subSelectedWindowID else {
+              let selectedItem = session.items[safe: session.selectedIndex] else {
             return nil
         }
-        return group.managedWindows.firstIndex { $0.id == subSelectedWindowID }
+        return subSelectedWindowIndex(for: selectedItem)
     }
 
     /// Called when the user commits a selection. Passes the selected SwitcherItem and optional sub-selection index.
@@ -43,10 +44,14 @@ class SwitcherController {
         items: [SwitcherItem],
         style: SwitcherStyle,
         scope: Scope,
-        namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow
+        namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow,
+        splitPinnedTabsIntoSeparateGroup: Bool = false,
+        splitSeparatedTabsIntoSeparateGroups: Bool = false
     ) {
         guard !items.isEmpty else { return }
 
+        self.splitPinnedTabsIntoSeparateGroup = splitPinnedTabsIntoSeparateGroup
+        self.splitSeparatedTabsIntoSeparateGroups = splitSeparatedTabsIntoSeparateGroups
         session.start(items: items, style: style, scope: scope, namedGroupLabelMode: namedGroupLabelMode)
 
         updatePanel()
@@ -72,9 +77,11 @@ class SwitcherController {
         guard session.scope == .global,
               session.hasItems,
               session.selectedIndex < session.items.count else { return }
-        guard case .group(let group) = session.items[session.selectedIndex], group.managedWindowCount > 1 else { return }
+        let selectedItem = session.items[session.selectedIndex]
+        guard let group = selectedItem.tabGroup, selectedItem.windowIDs.count > 1 else { return }
 
-        let indices = mruWindowIndices(for: group)
+        let focusedWindowID = subSelectedWindowID ?? group.activeWindow?.id
+        let indices = mruWindowIndices(for: selectedItem, group: group, focusedWindowID: focusedWindowID)
         guard !indices.isEmpty else { return }
         // Start from the existing sub-selection, or MRU position 0 (the visual
         // head) if this is the first press — NOT group.activeIndex, which may
@@ -110,9 +117,11 @@ class SwitcherController {
         guard session.scope == .global,
               session.hasItems,
               session.selectedIndex < session.items.count else { return }
-        guard case .group(let group) = session.items[session.selectedIndex], group.managedWindowCount > 1 else { return }
+        let selectedItem = session.items[session.selectedIndex]
+        guard let group = selectedItem.tabGroup, selectedItem.windowIDs.count > 1 else { return }
 
-        let indices = mruWindowIndices(for: group)
+        let focusedWindowID = subSelectedWindowID ?? group.activeWindow?.id
+        let indices = mruWindowIndices(for: selectedItem, group: group, focusedWindowID: focusedWindowID)
         guard !indices.isEmpty else { return }
         let currentPos = subSelectedWindowPosition(in: group, mruIndices: indices) ?? 0
         let nextIndex = indices[(currentPos - 1 + indices.count) % indices.count]
@@ -244,10 +253,22 @@ class SwitcherController {
     }
 
     /// Returns indices into `group.managedWindows` ordered by MRU (most-recent first).
-    private func mruWindowIndices(for group: TabGroup) -> [Int] {
-        let windowIDs = Set(group.managedWindows.map(\.id))
+    private func mruWindowIndices(for item: SwitcherItem, group: TabGroup, focusedWindowID: CGWindowID?) -> [Int] {
+        let groupedWindowIDs: [CGWindowID]
+        if item.isSegmentedGroup {
+            groupedWindowIDs = item.windowIDs
+        } else {
+            groupedWindowIDs = TabWindowGrouping.focusedSegmentWindowIDs(
+                in: group,
+                focusedWindowID: focusedWindowID,
+                splitPinnedTabs: splitPinnedTabsIntoSeparateGroup,
+                splitOnSeparators: splitSeparatedTabsIntoSeparateGroups
+            )
+        }
+        let windowIDs = Set(groupedWindowIDs)
         let mruIDs = group.focusHistory.filter { windowIDs.contains($0) }
-        let remainingIDs = group.managedWindows.map(\.id).filter { !mruIDs.contains($0) }
+        let mruIDSet = Set(mruIDs)
+        let remainingIDs = groupedWindowIDs.filter { !mruIDSet.contains($0) }
         return (mruIDs + remainingIDs).compactMap { id in
             group.managedWindows.firstIndex { $0.id == id }
         }
@@ -262,9 +283,16 @@ class SwitcherController {
     }
 
     private func subSelectedWindowIndex(for item: SwitcherItem) -> Int? {
-        guard case .group(let group) = item,
-              let subSelectedWindowID else { return nil }
-        return group.managedWindows.firstIndex { $0.id == subSelectedWindowID }
+        guard let subSelectedWindowID else { return nil }
+
+        switch item {
+        case .singleWindow:
+            return nil
+        case .group(let group):
+            return group.managedWindows.firstIndex { $0.id == subSelectedWindowID }
+        case .groupSegment(_, let windowIDs):
+            return windowIDs.firstIndex(of: subSelectedWindowID)
+        }
     }
 
     private func precomputeGroupIcons(
@@ -284,5 +312,7 @@ class SwitcherController {
         panel?.dismiss()
         panel = nil
         session.clear()
+        splitPinnedTabsIntoSeparateGroup = false
+        splitSeparatedTabsIntoSeparateGroups = false
     }
 }

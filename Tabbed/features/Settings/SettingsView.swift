@@ -10,7 +10,7 @@ enum SettingsTab: Int {
         case .launcher:  return 420
         case .tabBar:    return 330
         case .shortcuts: return 520
-        case .switcher:  return 430
+        case .switcher:  return 510
         }
     }
 }
@@ -94,6 +94,12 @@ struct SettingsView: View {
             onSwitcherConfigChanged(switcherConfig)
         }
         .onChange(of: switcherConfig.namedGroupLabelMode) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: switcherConfig.splitPinnedTabsIntoSeparateGroup) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: switcherConfig.splitSeparatedTabsIntoSeparateGroups) { _ in
             onSwitcherConfigChanged(switcherConfig)
         }
         .onChange(of: launcherConfig.urlLaunchEnabled) { _ in
@@ -669,7 +675,52 @@ struct SettingsView: View {
                 shortcutAction: .cycleTab
             )
 
+            Divider()
+
+            tabGroupingSection
+
             Spacer()
+        }
+    }
+
+    private var tabGroupingSection: some View {
+        VStack(spacing: 0) {
+            Text("Tab Grouping Rules")
+                .font(.headline)
+                .padding(.top, 16)
+                .padding(.bottom, 4)
+
+            Text("Control how tab cycling and group sub-cycling partition tabs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 8)
+
+            Toggle(isOn: $switcherConfig.splitPinnedTabsIntoSeparateGroup) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Treat Pinned Tabs as Separate Group")
+                    Text("Cycle pinned tabs separately from non-pinned tabs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+
+            Toggle(isOn: $switcherConfig.splitSeparatedTabsIntoSeparateGroups) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Treat Separator Sections as Separate Groups")
+                    Text("Use separator tabs (`|`) as boundaries between cycle groups.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .padding(.bottom, 12)
         }
     }
 

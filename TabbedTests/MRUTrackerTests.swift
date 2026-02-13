@@ -38,6 +38,33 @@ final class MRUTrackerTests: XCTestCase {
         XCTAssertEqual(tracker.entries, [.group(id)])
     }
 
+    func testRemoveWindowRemovesStandaloneAndGroupedWindowEntries() {
+        let tracker = MRUTracker()
+        let groupID = UUID()
+
+        tracker.recordActivation(.groupWindow(groupID: groupID, windowID: 12))
+        tracker.recordActivation(.window(12))
+        tracker.recordActivation(.groupWindow(groupID: groupID, windowID: 13))
+
+        tracker.removeWindow(12)
+
+        XCTAssertEqual(tracker.entries, [.groupWindow(groupID: groupID, windowID: 13)])
+    }
+
+    func testRemoveGroupRemovesLegacyAndGroupedWindowEntries() {
+        let tracker = MRUTracker()
+        let groupID = UUID()
+        let otherGroupID = UUID()
+
+        tracker.recordActivation(.group(groupID))
+        tracker.recordActivation(.groupWindow(groupID: groupID, windowID: 22))
+        tracker.recordActivation(.groupWindow(groupID: otherGroupID, windowID: 23))
+
+        tracker.removeGroup(groupID)
+
+        XCTAssertEqual(tracker.entries, [.groupWindow(groupID: otherGroupID, windowID: 23)])
+    }
+
     func testMRUGroupOrderReturnsOnlyGroups() {
         let tracker = MRUTracker()
         let groupA = UUID(uuidString: "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC")! // swiftlint:disable:this force_unwrapping
@@ -46,6 +73,18 @@ final class MRUTrackerTests: XCTestCase {
         tracker.recordActivation(.group(groupA))
         tracker.recordActivation(.window(42))
         tracker.recordActivation(.group(groupB))
+
+        XCTAssertEqual(tracker.mruGroupOrder(), [groupB, groupA])
+    }
+
+    func testMRUGroupOrderIncludesGroupWindowEntriesWithoutDuplicates() {
+        let tracker = MRUTracker()
+        let groupA = UUID()
+        let groupB = UUID()
+
+        tracker.recordActivation(.groupWindow(groupID: groupA, windowID: 10))
+        tracker.recordActivation(.groupWindow(groupID: groupA, windowID: 11))
+        tracker.recordActivation(.groupWindow(groupID: groupB, windowID: 20))
 
         XCTAssertEqual(tracker.mruGroupOrder(), [groupB, groupA])
     }
@@ -106,5 +145,116 @@ final class MRUTrackerTests: XCTestCase {
         XCTAssertEqual(items.count, 1)
         XCTAssertTrue(items[0].isGroup)
         XCTAssertEqual(items[0].windowIDs, [groupedWindow.id])
+    }
+
+    func testBuildSwitcherItemsSplitByPinnedTabsCreatesMultipleGroupEntries() {
+        let tracker = MRUTracker()
+        var pinnedA = makeWindow(id: 31, appName: "PinnedA")
+        var pinnedB = makeWindow(id: 32, appName: "PinnedB")
+        let unpinned = makeWindow(id: 33, appName: "Unpinned")
+        pinnedA.isPinned = true
+        pinnedB.isPinned = true
+        let group = TabGroup(windows: [pinnedA, pinnedB, unpinned], frame: .zero)
+
+        let items = tracker.buildSwitcherItems(
+            groups: [group],
+            zOrderedWindows: [pinnedA, unpinned, pinnedB],
+            splitPinnedTabsIntoSeparateGroup: true
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items[0].isGroup)
+        XCTAssertTrue(items[1].isGroup)
+        XCTAssertEqual(items[0].windowIDs, [31, 32])
+        XCTAssertEqual(items[1].windowIDs, [33])
+    }
+
+    func testBuildSwitcherItemsSplitBySeparatorsCreatesMultipleGroupEntries() {
+        let tracker = MRUTracker()
+        let w1 = makeWindow(id: 41, appName: "A")
+        let separator = WindowInfo.separator(withID: 4_000_001_111)
+        let w2 = makeWindow(id: 42, appName: "B")
+        let w3 = makeWindow(id: 43, appName: "C")
+        let group = TabGroup(windows: [w1, separator, w2, w3], frame: .zero)
+
+        let items = tracker.buildSwitcherItems(
+            groups: [group],
+            zOrderedWindows: [w2, w1, w3],
+            splitSeparatedTabsIntoSeparateGroups: true
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].windowIDs, [42, 43])
+        XCTAssertEqual(items[1].windowIDs, [41])
+    }
+
+    func testBuildSwitcherItemsSplitByPinnedTabsStartsFromActiveSegment() {
+        let tracker = MRUTracker()
+        var pinnedA = makeWindow(id: 51, appName: "PinnedA")
+        let unpinned = makeWindow(id: 52, appName: "Unpinned")
+        pinnedA.isPinned = true
+        let group = TabGroup(windows: [pinnedA, unpinned], frame: .zero)
+
+        group.switchTo(index: 1)
+        group.recordFocus(windowID: unpinned.id)
+        tracker.recordActivation(.group(group.id))
+
+        let items = tracker.buildSwitcherItems(
+            groups: [group],
+            zOrderedWindows: [unpinned, pinnedA],
+            splitPinnedTabsIntoSeparateGroup: true
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].windowIDs, [52])
+        XCTAssertEqual(items[1].windowIDs, [51])
+    }
+
+    func testBuildSwitcherItemsSplitByPinnedTabsUsesSegmentMRUFromGroupWindowEntry() {
+        let tracker = MRUTracker()
+        var pinnedA = makeWindow(id: 61, appName: "PinnedA")
+        let unpinned = makeWindow(id: 62, appName: "Unpinned")
+        pinnedA.isPinned = true
+        let group = TabGroup(windows: [pinnedA, unpinned], frame: .zero)
+        group.switchTo(index: 0)
+
+        tracker.recordActivation(.groupWindow(groupID: group.id, windowID: unpinned.id))
+
+        let items = tracker.buildSwitcherItems(
+            groups: [group],
+            zOrderedWindows: [pinnedA, unpinned],
+            splitPinnedTabsIntoSeparateGroup: true
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].windowIDs, [62])
+        XCTAssertEqual(items[1].windowIDs, [61])
+    }
+
+    func testBuildSwitcherItemsSplitGroupsInterleaveBySegmentMRU() {
+        let tracker = MRUTracker()
+
+        var g1Pinned = makeWindow(id: 71, appName: "G1Pinned")
+        let g1Unpinned = makeWindow(id: 72, appName: "G1Unpinned")
+        g1Pinned.isPinned = true
+        let group1 = TabGroup(windows: [g1Pinned, g1Unpinned], frame: .zero)
+
+        var g2Pinned = makeWindow(id: 81, appName: "G2Pinned")
+        let g2Unpinned = makeWindow(id: 82, appName: "G2Unpinned")
+        g2Pinned.isPinned = true
+        let group2 = TabGroup(windows: [g2Pinned, g2Unpinned], frame: .zero)
+
+        tracker.recordActivation(.groupWindow(groupID: group1.id, windowID: g1Unpinned.id))
+        tracker.recordActivation(.groupWindow(groupID: group2.id, windowID: g2Pinned.id))
+
+        let items = tracker.buildSwitcherItems(
+            groups: [group1, group2],
+            zOrderedWindows: [g1Pinned, g2Unpinned, g1Unpinned, g2Pinned],
+            splitPinnedTabsIntoSeparateGroup: true
+        )
+
+        XCTAssertGreaterThanOrEqual(items.count, 2)
+        XCTAssertEqual(items[0].windowIDs, [81])
+        XCTAssertEqual(items[1].windowIDs, [72])
     }
 }

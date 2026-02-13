@@ -113,6 +113,21 @@ final class SwitcherItemTests: XCTestCase {
         XCTAssertEqual(item.displayTitle, "Workspace")
     }
 
+    func testGroupSegmentUsesOnlySegmentWindows() {
+        let w1 = makeWindow(id: 610, title: "Pinned", appName: "Finder")
+        let w2 = makeWindow(id: 611, title: "Main", appName: "Finder")
+        let w3 = makeWindow(id: 612, title: "Docs", appName: "Finder")
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+        let item = SwitcherItem.groupSegment(group, windowIDs: [611, 612])
+
+        XCTAssertTrue(item.isGroup)
+        XCTAssertEqual(item.windowCount, 2)
+        XCTAssertEqual(item.windowIDs, [611, 612])
+        XCTAssertEqual(item.window(at: 0)?.id, 611)
+        XCTAssertEqual(item.window(at: 1)?.id, 612)
+        XCTAssertNil(item.window(at: 2))
+    }
+
     // MARK: - iconsInMRUOrder
 
     func testIconsInMRUOrderReturnsSingleIconForSingleWindow() {
@@ -184,5 +199,16 @@ final class SwitcherItemTests: XCTestCase {
         // w3's MRU position = 3, sliding window of 3: [w3, w0(wrap), w1(wrap)] → reversed: [w1, w0, w3]
         let result = item.iconsInMRUOrder(frontIndex: 3, maxVisible: 3)
         XCTAssertEqual(result.count, 3)
+    }
+
+    func testIconsInMRUOrderForGroupSegmentUsesSegmentOnly() {
+        let w1 = makeWindow(id: 1300, title: "A", appName: "App")
+        let w2 = makeWindow(id: 1301, title: "B", appName: "App")
+        let w3 = makeWindow(id: 1302, title: "C", appName: "App")
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+        let item = SwitcherItem.groupSegment(group, windowIDs: [1301, 1302])
+
+        let result = item.iconsInMRUOrder(frontIndex: 1, maxVisible: 5)
+        XCTAssertEqual(result.count, 2)
     }
 }

@@ -164,6 +164,9 @@ extension AppDelegate {
                 windowRecency[windowID] = score
             case .group(let groupID):
                 groupRecency[groupID] = score
+            case .groupWindow(let groupID, let windowID):
+                groupRecency[groupID] = max(groupRecency[groupID] ?? 0, score)
+                windowRecency[windowID] = max(windowRecency[windowID] ?? 0, score)
             }
         }
 

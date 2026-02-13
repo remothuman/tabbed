@@ -62,8 +62,16 @@ enum AutoCapturePolicy {
         }
 
         for entry in mruEntries {
-            guard case .group(let groupID) = entry,
-                  candidateSet.contains(groupID) else { continue }
+            let groupID: UUID?
+            switch entry {
+            case .group(let id):
+                groupID = id
+            case .groupWindow(let id, _):
+                groupID = id
+            case .window:
+                groupID = nil
+            }
+            guard let groupID, candidateSet.contains(groupID) else { continue }
             return groupID
         }
 

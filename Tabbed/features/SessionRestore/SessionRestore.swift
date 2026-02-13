@@ -149,10 +149,10 @@ extension AppDelegate {
                 let windowElement = focusedRef as! AXUIElement // swiftlint:disable:this force_cast
                 if let windowID = AccessibilityHelper.windowID(for: windowElement),
                    let group = groupManager.group(for: windowID) {
-                    group.switchTo(windowID: windowID)
+                   group.switchTo(windowID: windowID)
                     group.recordFocus(windowID: windowID)
                     lastActiveGroupID = group.id
-                    recordGlobalActivation(.group(group.id))
+                    recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
                     Logger.log("[SessionRestore] synced active tab to focused window wid=\(windowID) in group=\(group.id)")
                 }
             }

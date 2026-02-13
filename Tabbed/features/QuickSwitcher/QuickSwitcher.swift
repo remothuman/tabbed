@@ -51,7 +51,12 @@ extension AppDelegate {
             Logger.log("[GS] inventory empty; refresh in progress")
             return
         }
-        let items = mruTracker.buildSwitcherItems(groups: groupManager.groups, zOrderedWindows: zWindows)
+        let items = mruTracker.buildSwitcherItems(
+            groups: groupManager.groups,
+            zOrderedWindows: zWindows,
+            splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
+        )
 
         Logger.log("[GS] groups=\(groupManager.groups.count) mru=\(mruTracker.count) items=\(items.map { $0.isGroup ? "G" : "W" }.joined())")
 
@@ -66,7 +71,9 @@ extension AppDelegate {
             items: items,
             style: switcherConfig.globalStyle,
             scope: .global,
-            namedGroupLabelMode: switcherConfig.namedGroupLabelMode
+            namedGroupLabelMode: switcherConfig.namedGroupLabelMode,
+            splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         if reverse { switcherController.retreat() } else { switcherController.advance() }
         hotkeyManager?.startModifierWatch(modifiers: hotkeyManager?.config.globalSwitcher.modifiers ?? 0)
@@ -106,7 +113,28 @@ extension AppDelegate {
             }
             guard let activeWindow = group.activeWindow else { return }
             beginCommitEchoSuppression(targetWindowID: activeWindow.id)
-            recordGlobalActivation(.group(group.id))
+            recordGlobalActivation(.groupWindow(groupID: group.id, windowID: activeWindow.id))
+            lastActiveGroupID = group.id
+            group.recordFocus(windowID: activeWindow.id)
+            focusWindow(activeWindow)
+            if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {
+                panel.orderAbove(windowID: activeWindow.id)
+            }
+        case .groupSegment(let group, let windowIDs):
+            if let subIndex,
+               let selectedWindowID = windowIDs[safe: subIndex] {
+                group.switchTo(windowID: selectedWindowID)
+            } else if let activeWindowID = group.activeWindow?.id,
+                      windowIDs.contains(activeWindowID) {
+                // Keep current segment-local active tab; no switch needed.
+            } else if let mruWindowID = group.focusHistory.first(where: { windowIDs.contains($0) }) {
+                group.switchTo(windowID: mruWindowID)
+            } else if let firstWindowID = windowIDs.first {
+                group.switchTo(windowID: firstWindowID)
+            }
+            guard let activeWindow = group.activeWindow, windowIDs.contains(activeWindow.id) else { return }
+            beginCommitEchoSuppression(targetWindowID: activeWindow.id)
+            recordGlobalActivation(.groupWindow(groupID: group.id, windowID: activeWindow.id))
             lastActiveGroupID = group.id
             group.recordFocus(windowID: activeWindow.id)
             focusWindow(activeWindow)

@@ -23,6 +23,8 @@ final class SwitcherConfigTests: XCTestCase {
     func testDefaultNamedGroupLabelMode() {
         let config = SwitcherConfig()
         XCTAssertEqual(config.namedGroupLabelMode, .groupAppWindow)
+        XCTAssertFalse(config.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(config.splitSeparatedTabsIntoSeparateGroups)
     }
 
     func testDecodeLegacyStyleUsesDefaultNamedGroupLabelMode() throws {
@@ -31,6 +33,8 @@ final class SwitcherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.globalStyle, .titles)
         XCTAssertEqual(decoded.tabCycleStyle, .titles)
         XCTAssertEqual(decoded.namedGroupLabelMode, .groupAppWindow)
+        XCTAssertFalse(decoded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.splitSeparatedTabsIntoSeparateGroups)
     }
 
     func testDecodeModernWithoutNamedGroupLabelModeUsesDefault() throws {
@@ -39,14 +43,20 @@ final class SwitcherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.globalStyle, .appIcons)
         XCTAssertEqual(decoded.tabCycleStyle, .titles)
         XCTAssertEqual(decoded.namedGroupLabelMode, .groupAppWindow)
+        XCTAssertFalse(decoded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.splitSeparatedTabsIntoSeparateGroups)
     }
 
     func testSaveAndLoadNamedGroupLabelMode() {
         var config = SwitcherConfig()
         config.namedGroupLabelMode = .groupNameOnly
+        config.splitPinnedTabsIntoSeparateGroup = true
+        config.splitSeparatedTabsIntoSeparateGroups = true
         config.save()
 
         let loaded = SwitcherConfig.load()
         XCTAssertEqual(loaded.namedGroupLabelMode, .groupNameOnly)
+        XCTAssertTrue(loaded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertTrue(loaded.splitSeparatedTabsIntoSeparateGroups)
     }
 }

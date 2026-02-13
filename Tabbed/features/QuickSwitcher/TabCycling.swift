@@ -16,7 +16,13 @@ extension AppDelegate {
         }
 
         guard let (group, _) = activeGroup() else { return }
-        guard group.managedWindowCount > 1 else { return }
+        let groupedWindowIDs = TabWindowGrouping.focusedSegmentWindowIDs(
+            in: group,
+            focusedWindowID: group.activeWindow?.id,
+            splitPinnedTabs: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitOnSeparators: switcherConfig.splitSeparatedTabsIntoSeparateGroups
+        )
+        guard groupedWindowIDs.count > 1 else { return }
 
         cyclingGroup = group
 
@@ -25,12 +31,17 @@ extension AppDelegate {
             return
         }
 
-        let windowIDs = Set(group.managedWindows.map(\.id))
-        let mruOrder = group.focusHistory.filter { windowIDs.contains($0) }
+        let managedByID = Dictionary(uniqueKeysWithValues: group.managedWindows.map { ($0.id, $0) })
+        let windowIDSet = Set(groupedWindowIDs)
+        let mruOrder = group.focusHistory.filter { windowIDSet.contains($0) }
+        let mruSet = Set(mruOrder)
         let orderedWindows: [WindowInfo] = mruOrder.compactMap { id in
-            group.managedWindows.first { $0.id == id }
+            managedByID[id]
         }
-        let remaining = group.managedWindows.filter { w in !mruOrder.contains(w.id) }
+        let remaining: [WindowInfo] = groupedWindowIDs.compactMap { id in
+            guard !mruSet.contains(id) else { return nil }
+            return managedByID[id]
+        }
         let allWindows = orderedWindows + remaining
 
         let items = allWindows.map { SwitcherItem.singleWindow($0) }
@@ -59,7 +70,9 @@ extension AppDelegate {
         switcherController.show(
             items: items,
             style: switcherConfig.tabCycleStyle,
-            scope: .withinGroup
+            scope: .withinGroup,
+            splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         if reverse { switcherController.retreat() } else { switcherController.advance() }
         hotkeyManager?.startModifierWatch(modifiers: hotkeyManager?.config.cycleTab.modifiers ?? 0)
