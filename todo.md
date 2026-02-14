@@ -2,8 +2,16 @@
 - allow autogroup 1 window in never group mode
 
 - improve dragging
+    - too easy to drag tab off
+
+
 - autocapture AND mode
 
+
+- sometimes fails to switch to window properly (alttab eg controls window (accessory window) - even alttab does too, but it properly puts it as second in this case instead of acting like switch was sucessful. not 100% what to do)
+
+
+- setting on whether to include regular windows in quick switcher,
 
 - settings should show up in control tab (investigate?)
 - newly opened windows / launched apps sometimes end up at bottom of MRU instead of top / correct pos, generally sometimes takes a few switches before mru order is correct
