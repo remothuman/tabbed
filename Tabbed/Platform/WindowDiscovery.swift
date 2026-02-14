@@ -6,8 +6,6 @@ import ApplicationServices
 /// - `allSpaces()` — windows across every Space, z-ordered
 enum WindowDiscovery {
 
-    private static let ownPID = ProcessInfo.processInfo.processIdentifier
-
     // MARK: - Entry Points
 
     /// Returns on-screen windows on the current Space, ordered by z-index (front-most first).
@@ -15,7 +13,7 @@ enum WindowDiscovery {
     ///
     /// - Parameter includeAccessoryApps: Also consider windows from `.accessory`-policy
     ///   apps (menu bar utilities). Defaults to `false`.
-    static func currentSpace(includeAccessoryApps: Bool = false) -> [WindowInfo] {
+    static func currentSpace(includeAccessoryApps: Bool = true) -> [WindowInfo] {
         let cgWindows = AccessibilityHelper.getWindowList()
         var results: [WindowInfo] = []
 
@@ -27,8 +25,7 @@ enum WindowDiscovery {
         var cacheByPID: [pid_t: AppCache] = [:]
 
         for info in cgWindows {
-            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  pid != ownPID else { continue }
+            guard let pid = info[kCGWindowOwnerPID as String] as? pid_t else { continue }
 
             if cacheByPID[pid] == nil {
                 let app = NSRunningApplication(processIdentifier: pid)
@@ -52,7 +49,6 @@ enum WindowDiscovery {
         // Walk CG windows in z-order and filter through WindowDiscriminator
         for info in cgWindows {
             guard let pid = info[kCGWindowOwnerPID as String] as? pid_t,
-                  pid != ownPID,
                   let windowID = info[kCGWindowNumber as String] as? CGWindowID,
                   let cache = cacheByPID[pid],
                   let app = cache.app,
@@ -100,7 +96,7 @@ enum WindowDiscovery {
     ///   - includeAccessoryApps: Also discover windows from `.accessory`-policy
     ///     apps (menu bar utilities). Their settings/preference windows pass through
     ///     the normal `WindowDiscriminator` filter so panels and popovers are still excluded.
-    static func allSpaces(includeHidden: Bool = false, includeAccessoryApps: Bool = false) -> [WindowInfo] {
+    static func allSpaces(includeHidden: Bool = false, includeAccessoryApps: Bool = true) -> [WindowInfo] {
         let totalStart = CFAbsoluteTimeGetCurrent()
 
         // Step 1: App discovery
@@ -109,7 +105,6 @@ enum WindowDiscovery {
             : [.regular]
         let apps = NSWorkspace.shared.runningApplications.filter { app in
             allowedPolicies.contains(app.activationPolicy) &&
-            app.processIdentifier != ownPID &&
             (includeHidden || !app.isHidden)
         }
 
