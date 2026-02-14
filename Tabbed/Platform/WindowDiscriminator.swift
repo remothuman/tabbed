@@ -8,6 +8,45 @@ enum WindowDiscriminator {
         case autoJoin
     }
 
+    // MARK: - CG-Level Pre-Filter
+
+    /// Metadata from a CG window list entry, used for lightweight pre-filtering
+    /// before expensive AX queries or brute-force probing.
+    struct CGWindowMeta {
+        let bounds: CGRect
+        let zOrder: Int
+        let name: String?
+        let alpha: CGFloat
+        let isOnscreen: Bool
+    }
+
+    /// Determines whether a CG window entry is likely a real user window worth
+    /// brute-force probing for.  Filters out rendering surfaces, overlays, and
+    /// other non-window CG entries that games and GPU-heavy apps create.
+    ///
+    /// A CG window is considered a plausible real window if ANY of:
+    ///   • It has a non-empty window name (real windows almost always have titles)
+    ///   • It has reasonable bounds (≥ 50×50) AND is marked on-screen
+    ///
+    /// AND all of:
+    ///   • Its alpha is > 0 (invisible surfaces are never real windows)
+    ///   • Its bounds are at least 1×1 (degenerate zero-size entries are surfaces)
+    static func isPlausibleCGWindow(_ meta: CGWindowMeta) -> Bool {
+        // Invisible — never a real window
+        guard meta.alpha > 0 else { return false }
+        // Degenerate bounds — rendering surface / placeholder
+        guard meta.bounds.width >= 1, meta.bounds.height >= 1 else { return false }
+        // Has a title — very likely a real window
+        if let name = meta.name, !name.isEmpty { return true }
+        // No title but reasonably sized and on-screen — could be a real window
+        // (some apps have untitled windows, e.g. splash screens, loading windows)
+        if meta.bounds.width >= 50, meta.bounds.height >= 50, meta.isOnscreen { return true }
+        // No title, not on-screen or too small — likely a surface
+        return false
+    }
+
+    // MARK: - AX-Level Full Check
+
     /// Determines whether a window should be shown in the switcher.
     ///
     /// Applies universal filters first (valid ID, minimum size), then checks

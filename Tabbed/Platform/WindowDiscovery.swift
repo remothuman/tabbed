@@ -90,6 +90,8 @@ enum WindowDiscovery {
     /// (with brute-force cross-space fallback), filters via WindowDiscriminator,
     /// then sorts by CG z-order.
     static func allSpaces(includeHidden: Bool = false) -> [WindowInfo] {
+        let totalStart = CFAbsoluteTimeGetCurrent()
+
         // Step 1: App discovery
         let apps = NSWorkspace.shared.runningApplications.filter { app in
             app.activationPolicy == .regular &&
@@ -97,11 +99,12 @@ enum WindowDiscovery {
             (includeHidden || !app.isHidden)
         }
 
-        // Step 2 (prefetch): CG window list for bounds and z-order
+        // Step 2 (prefetch): CG window list for bounds, z-order, and metadata
+        let cgStart = CFAbsoluteTimeGetCurrent()
         let cgOptions: CGWindowListOption = [.excludeDesktopElements]
         let cgWindowList = CGWindowListCopyWindowInfo(cgOptions, kCGNullWindowID) as? [[String: Any]] ?? []
 
-        var cgLookup: [CGWindowID: (bounds: CGRect, zOrder: Int)] = [:]
+        var cgLookup: [CGWindowID: WindowDiscriminator.CGWindowMeta] = [:]
         var cgWindowsByPID: [pid_t: Set<CGWindowID>] = [:]
         for (index, info) in cgWindowList.enumerated() {
             guard let wid = info[kCGWindowNumber as String] as? CGWindowID,
@@ -110,11 +113,18 @@ enum WindowDiscovery {
             if let boundsDict = info[kCGWindowBounds as String] as? NSDictionary as CFDictionary? {
                 CGRectMakeWithDictionaryRepresentation(boundsDict, &bounds)
             }
-            cgLookup[wid] = (bounds: bounds, zOrder: index)
+            let name = info[kCGWindowName as String] as? String
+            let alpha = (info[kCGWindowAlpha as String] as? CGFloat) ?? 1.0
+            let isOnscreen = (info[kCGWindowIsOnscreen as String] as? Bool) ?? false
+            cgLookup[wid] = WindowDiscriminator.CGWindowMeta(
+                bounds: bounds, zOrder: index,
+                name: name, alpha: alpha, isOnscreen: isOnscreen
+            )
             if let pid = info[kCGWindowOwnerPID as String] as? pid_t {
                 cgWindowsByPID[pid, default: []].insert(wid)
             }
         }
+        let cgElapsed = CFAbsoluteTimeGetCurrent() - cgStart
 
         // Step 3: AX-first window discovery + filtering (parallelized per-app)
         let cgsConn = CGSMainConnectionID()
@@ -136,83 +146,168 @@ enum WindowDiscovery {
             executableURL: $0.executableURL
         )}
 
+        // Per-app timing collected in parallel, logged after
+        struct AppTiming {
+            let pid: pid_t
+            let appName: String
+            let axTime: Double
+            let bruteForceTime: Double
+            let filterTime: Double
+            let totalTime: Double
+            let axWindowCount: Int
+            let cgMissingRaw: Int
+            let cgMissingFiltered: Int
+            let bruteForceFound: Int
+            let resultCount: Int
+        }
+        var perAppTimings: [AppTiming?] = Array(repeating: nil, count: appSnapshots.count)
+
         // Each app writes to its own slot — no synchronization needed
+        let axStart = CFAbsoluteTimeGetCurrent()
         var perAppResults: [[WindowInfo]?] = Array(repeating: nil, count: appSnapshots.count)
         perAppResults.withUnsafeMutableBufferPointer { buffer in
-            DispatchQueue.concurrentPerform(iterations: appSnapshots.count) { i in
-                let snap = appSnapshots[i]
+            perAppTimings.withUnsafeMutableBufferPointer { timingBuffer in
+                DispatchQueue.concurrentPerform(iterations: appSnapshots.count) { i in
+                    let snap = appSnapshots[i]
+                    let appStart = CFAbsoluteTimeGetCurrent()
 
-                // Set messaging timeout (100ms) to cap slow/hung apps
-                let appElement = AccessibilityHelper.appElement(for: snap.pid)
-                AXUIElementSetMessagingTimeout(appElement, 0.1)
+                    // Set messaging timeout (100ms) to cap slow/hung apps
+                    let appElement = AccessibilityHelper.appElement(for: snap.pid)
+                    AXUIElementSetMessagingTimeout(appElement, 0.1)
 
-                // Standard AX windows (current space)
-                var windowsByID: [CGWindowID: AXUIElement] = [:]
-                var axValue: AnyObject?
-                let axResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &axValue)
-                if axResult == .success, let axWindows = axValue as? [AXUIElement] {
-                    for ax in axWindows {
-                        if let wid = AccessibilityHelper.windowID(for: ax), wid != 0 {
-                            windowsByID[wid] = ax
+                    // Standard AX windows (current space)
+                    let axQueryStart = CFAbsoluteTimeGetCurrent()
+                    var windowsByID: [CGWindowID: AXUIElement] = [:]
+                    var axValue: AnyObject?
+                    let axResult = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &axValue)
+                    if axResult == .success, let axWindows = axValue as? [AXUIElement] {
+                        for ax in axWindows {
+                            if let wid = AccessibilityHelper.windowID(for: ax), wid != 0 {
+                                windowsByID[wid] = ax
+                            }
                         }
                     }
-                }
+                    let axQueryTime = CFAbsoluteTimeGetCurrent() - axQueryStart
+                    let axWindowCount = windowsByID.count
 
-                // Brute-force cross-space discovery (only if CG shows windows AX missed)
-                let cgWindows = cgWindowsByPID[snap.pid] ?? []
-                let missingFromAX = cgWindows.subtracting(windowsByID.keys)
-                if !missingFromAX.isEmpty {
-                    let bruteForce = discoverWindowsByBruteForce(pid: snap.pid, targetWindowIDs: missingFromAX)
-                    for (element, wid) in bruteForce {
-                        if windowsByID[wid] == nil {
-                            windowsByID[wid] = element
+                    // Brute-force cross-space discovery for CG windows AX missed.
+                    // Pre-filter the "missing" set using CG metadata to skip rendering
+                    // surfaces, overlays, and other non-window entries that would
+                    // cause expensive brute-force probing against unresponsive apps.
+                    let cgWindows = cgWindowsByPID[snap.pid] ?? []
+                    let allMissing = cgWindows.subtracting(windowsByID.keys)
+                    let cgMissingRaw = allMissing.count
+                    let plausibleMissing = allMissing.filter { wid in
+                        guard let meta = cgLookup[wid] else { return false }
+                        return WindowDiscriminator.isPlausibleCGWindow(meta)
+                    }
+                    let cgMissingFiltered = plausibleMissing.count
+
+                    var bruteForceTime: Double = 0
+                    var bruteForceFound = 0
+                    if !plausibleMissing.isEmpty {
+                        let bfStart = CFAbsoluteTimeGetCurrent()
+                        let targets = Set(plausibleMissing)
+                        let bruteForce = discoverWindowsByBruteForce(pid: snap.pid, targetWindowIDs: targets)
+                        bruteForceTime = CFAbsoluteTimeGetCurrent() - bfStart
+                        bruteForceFound = bruteForce.count
+                        for (element, wid) in bruteForce {
+                            if windowsByID[wid] == nil {
+                                windowsByID[wid] = element
+                            }
                         }
                     }
-                }
 
-                // Filter and build WindowInfo
-                var appWindows: [WindowInfo] = []
-                for (wid, element) in windowsByID {
-                    AXUIElementSetMessagingTimeout(element, 0.1)
+                    // Filter and build WindowInfo
+                    let filterStart = CFAbsoluteTimeGetCurrent()
+                    var appWindows: [WindowInfo] = []
+                    for (wid, element) in windowsByID {
+                        AXUIElementSetMessagingTimeout(element, 0.1)
 
-                    if AccessibilityHelper.isMinimized(element) { continue }
+                        if AccessibilityHelper.isMinimized(element) { continue }
 
-                    let subrole = AccessibilityHelper.getSubrole(of: element)
-                    let role = AccessibilityHelper.getRole(of: element)
-                    let title = AccessibilityHelper.getTitle(of: element)
-                    let size = AccessibilityHelper.getSize(of: element)
+                        let subrole = AccessibilityHelper.getSubrole(of: element)
+                        let role = AccessibilityHelper.getRole(of: element)
+                        let title = AccessibilityHelper.getTitle(of: element)
+                        let size = AccessibilityHelper.getSize(of: element)
 
-                    var windowLevel: Int32 = 0
-                    let levelOK = CGSGetWindowLevel(cgsConn, wid, &windowLevel) == 0
-                    let level: Int? = levelOK ? Int(windowLevel) : nil
+                        var windowLevel: Int32 = 0
+                        let levelOK = CGSGetWindowLevel(cgsConn, wid, &windowLevel) == 0
+                        let level: Int? = levelOK ? Int(windowLevel) : nil
 
-                    guard WindowDiscriminator.isActualWindow(
-                        cgWindowID: wid,
-                        subrole: subrole,
-                        role: role,
-                        title: title,
-                        size: size,
-                        level: level,
-                        bundleIdentifier: snap.bundleID,
-                        localizedName: snap.localizedName,
-                        executableURL: snap.executableURL,
-                        qualification: .windowDiscovery
-                    ) else { continue }
+                        guard WindowDiscriminator.isActualWindow(
+                            cgWindowID: wid,
+                            subrole: subrole,
+                            role: role,
+                            title: title,
+                            size: size,
+                            level: level,
+                            bundleIdentifier: snap.bundleID,
+                            localizedName: snap.localizedName,
+                            executableURL: snap.executableURL,
+                            qualification: .windowDiscovery
+                        ) else { continue }
 
-                    appWindows.append(WindowInfo(
-                        id: wid,
-                        element: element,
-                        ownerPID: snap.pid,
-                        bundleID: snap.bundleID ?? "",
-                        title: title ?? "",
+                        appWindows.append(WindowInfo(
+                            id: wid,
+                            element: element,
+                            ownerPID: snap.pid,
+                            bundleID: snap.bundleID ?? "",
+                            title: title ?? "",
+                            appName: snap.appName,
+                            icon: snap.icon,
+                            cgBounds: cgLookup[wid]?.bounds
+                        ))
+                    }
+                    let filterTime = CFAbsoluteTimeGetCurrent() - filterStart
+
+                    buffer[i] = appWindows
+                    timingBuffer[i] = AppTiming(
+                        pid: snap.pid,
                         appName: snap.appName,
-                        icon: snap.icon,
-                        cgBounds: cgLookup[wid]?.bounds
-                    ))
+                        axTime: axQueryTime,
+                        bruteForceTime: bruteForceTime,
+                        filterTime: filterTime,
+                        totalTime: CFAbsoluteTimeGetCurrent() - appStart,
+                        axWindowCount: axWindowCount,
+                        cgMissingRaw: cgMissingRaw,
+                        cgMissingFiltered: cgMissingFiltered,
+                        bruteForceFound: bruteForceFound,
+                        resultCount: appWindows.count
+                    )
                 }
-                buffer[i] = appWindows
             }
         }
+        let axElapsed = CFAbsoluteTimeGetCurrent() - axStart
+
+        // Log per-app timings (only slow apps or those that triggered brute-force)
+        for timing in perAppTimings.compactMap({ $0 }) {
+            if timing.totalTime > 0.05 || timing.cgMissingRaw > 0 {
+                var parts = [
+                    "pid=\(timing.pid)",
+                    "app=\(timing.appName)",
+                    String(format: "total=%.3fs", timing.totalTime),
+                    String(format: "ax=%.3fs", timing.axTime),
+                    "axWin=\(timing.axWindowCount)"
+                ]
+                if timing.cgMissingRaw > 0 {
+                    parts.append("cgMissing=\(timing.cgMissingRaw)")
+                    if timing.cgMissingFiltered != timing.cgMissingRaw {
+                        parts.append("plausible=\(timing.cgMissingFiltered)")
+                    }
+                    if timing.cgMissingFiltered > 0 {
+                        parts.append(String(format: "bf=%.3fs", timing.bruteForceTime))
+                        parts.append("bfFound=\(timing.bruteForceFound)")
+                    }
+                }
+                if timing.filterTime > 0.01 {
+                    parts.append(String(format: "filter=%.3fs", timing.filterTime))
+                }
+                parts.append("result=\(timing.resultCount)")
+                Logger.log("[Discovery] \(parts.joined(separator: " "))")
+            }
+        }
+
         var results = perAppResults.compactMap { $0 }.flatMap { $0 }
 
         // Step 4: Sort by CG z-order (frontmost first)
@@ -221,6 +316,10 @@ enum WindowDiscovery {
             let zB = cgLookup[b.id]?.zOrder ?? Int.max
             return zA < zB
         }
+
+        let totalElapsed = CFAbsoluteTimeGetCurrent() - totalStart
+        Logger.log(String(format: "[Discovery] allSpaces done: apps=%d windows=%d cgList=%.3fs axPhase=%.3fs total=%.3fs",
+                          appSnapshots.count, results.count, cgElapsed, axElapsed, totalElapsed))
 
         return results
     }
