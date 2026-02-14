@@ -3,6 +3,10 @@ import SwiftUI
 
 class TabBarPanel: NSPanel {
     static let tabBarHeight: CGFloat = ScreenCompensation.tabBarHeight
+    /// Corner radius when the group is maximized (tiny rounding on all four corners).
+    private static let maximizedCornerRadius: CGFloat = 2
+    /// Corner radius when the group is not maximized (top corners only).
+    private static let normalCornerRadius: CGFloat = 8
 
     private var visualEffectView: NSVisualEffectView!
 
@@ -53,10 +57,9 @@ class TabBarPanel: NSPanel {
         visualEffect.material = .menu
         visualEffect.state = .active
         visualEffect.wantsLayer = true
-        // Top corners only: in AppKit's non-flipped layer coords,
-        // MaxY = top edge, so these mask the top-left and top-right corners.
+        // Top corners only by default; positionAbove may switch to all corners when maximized.
         visualEffect.layer?.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        visualEffect.layer?.cornerRadius = 8
+        visualEffect.layer?.cornerRadius = Self.normalCornerRadius
         self.contentView?.addSubview(visualEffect, positioned: .below, relativeTo: nil)
         self.visualEffectView = visualEffect
     }
@@ -122,7 +125,7 @@ class TabBarPanel: NSPanel {
     }
 
     /// Position the panel above the given window frame (in AX/CG coordinates).
-    /// When `isMaximized` is true, top corners are not rounded so the bar aligns with the screen edge.
+    /// When `isMaximized` is true, uses a tiny radius on all four corners; otherwise top corners only with larger radius.
     func positionAbove(windowFrame: CGRect, isMaximized: Bool = false) {
         let appKitOrigin = CoordinateConverter.axToAppKit(
             point: CGPoint(
@@ -140,8 +143,14 @@ class TabBarPanel: NSPanel {
             ),
             display: true
         )
-        let radius: CGFloat = isMaximized ? 0 : 8
-        visualEffectView.layer?.cornerRadius = radius
+        guard let layer = visualEffectView.layer else { return }
+        if isMaximized {
+            layer.cornerRadius = Self.maximizedCornerRadius
+            layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        } else {
+            layer.cornerRadius = Self.normalCornerRadius
+            layer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        }
     }
 
     /// Order this panel directly above the specified window
