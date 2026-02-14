@@ -1,6 +1,9 @@
 
 - allow autogroup 1 window in never group mode
 
+- improve dragging
+- autocapture AND mode
+
 
 - settings should show up in control tab (investigate?)
 - newly opened windows / launched apps sometimes end up at bottom of MRU instead of top / correct pos, generally sometimes takes a few switches before mru order is correct
