@@ -17,7 +17,7 @@ final class WindowInventory {
 
     init(
         staleAfter: TimeInterval = 0.75,
-        discoverAllSpaces: @escaping DiscoverAllSpaces = { WindowDiscovery.allSpaces() },
+        discoverAllSpaces: @escaping DiscoverAllSpaces = { WindowDiscovery.allSpaces(includeAccessoryApps: true) },
         now: @escaping Now = Date.init
     ) {
         self.staleAfter = staleAfter

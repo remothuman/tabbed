@@ -7,7 +7,7 @@ class WindowManager: ObservableObject {
 
     /// Refreshes the window picker list (current space, sorted alphabetically).
     func refreshWindowList() {
-        availableWindows = WindowDiscovery.currentSpace().sorted {
+        availableWindows = WindowDiscovery.currentSpace(includeAccessoryApps: true).sorted {
             if $0.appName != $1.appName { return $0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending }
             return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
         }

@@ -12,7 +12,10 @@ enum WindowDiscovery {
 
     /// Returns on-screen windows on the current Space, ordered by z-index (front-most first).
     /// CG-first: walks the CoreGraphics window list and matches each to its AX element.
-    static func currentSpace() -> [WindowInfo] {
+    ///
+    /// - Parameter includeAccessoryApps: Also consider windows from `.accessory`-policy
+    ///   apps (menu bar utilities). Defaults to `false`.
+    static func currentSpace(includeAccessoryApps: Bool = false) -> [WindowInfo] {
         let cgWindows = AccessibilityHelper.getWindowList()
         var results: [WindowInfo] = []
 
@@ -29,7 +32,9 @@ enum WindowDiscovery {
 
             if cacheByPID[pid] == nil {
                 let app = NSRunningApplication(processIdentifier: pid)
-                guard app?.activationPolicy == .regular else {
+                let policy = app?.activationPolicy
+                let allowed = policy == .regular || (includeAccessoryApps && policy == .accessory)
+                guard allowed else {
                     cacheByPID[pid] = AppCache(app: nil, axWindows: [:])
                     continue
                 }
@@ -89,12 +94,21 @@ enum WindowDiscovery {
     /// AX-first: discovers apps via NSWorkspace, queries AX windows per app
     /// (with brute-force cross-space fallback), filters via WindowDiscriminator,
     /// then sorts by CG z-order.
-    static func allSpaces(includeHidden: Bool = false) -> [WindowInfo] {
+    ///
+    /// - Parameters:
+    ///   - includeHidden: Include windows from hidden apps.
+    ///   - includeAccessoryApps: Also discover windows from `.accessory`-policy
+    ///     apps (menu bar utilities). Their settings/preference windows pass through
+    ///     the normal `WindowDiscriminator` filter so panels and popovers are still excluded.
+    static func allSpaces(includeHidden: Bool = false, includeAccessoryApps: Bool = false) -> [WindowInfo] {
         let totalStart = CFAbsoluteTimeGetCurrent()
 
         // Step 1: App discovery
+        let allowedPolicies: [NSApplication.ActivationPolicy] = includeAccessoryApps
+            ? [.regular, .accessory]
+            : [.regular]
         let apps = NSWorkspace.shared.runningApplications.filter { app in
-            app.activationPolicy == .regular &&
+            allowedPolicies.contains(app.activationPolicy) &&
             app.processIdentifier != ownPID &&
             (includeHidden || !app.isHidden)
         }
