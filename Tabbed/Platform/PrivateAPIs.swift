@@ -20,6 +20,22 @@ func CGSMoveWindowsToManagedSpace(_ cid: UInt32, _ wids: CFArray, _ sid: UInt64)
 
 // MARK: - Brute-Force Window Discovery
 
+/// Promote a discovered accessibility element to its containing window element
+/// when possible. Some remote tokens resolve to child controls (e.g. radio
+/// groups) that still map to the right CGWindowID but fail window-role checks.
+func canonicalizeDiscoveredElement<Element>(
+    _ element: Element,
+    expectedWindowID: CGWindowID,
+    windowAttribute: (Element) -> Element?,
+    windowID: (Element) -> CGWindowID?
+) -> Element {
+    guard let container = windowAttribute(element),
+          windowID(container) == expectedWindowID else {
+        return element
+    }
+    return container
+}
+
 /// Discovers AXUIElements across all Spaces for a given PID by brute-forcing element IDs.
 ///
 /// When `targetWindowIDs` is provided, only searches for those specific CGWindowIDs and
@@ -63,11 +79,37 @@ func discoverWindowsByBruteForce(
         // Cap individual AX probes so a hung app can't block a single call for seconds
         AXUIElementSetMessagingTimeout(element, 0.1)
 
-        var windowID: CGWindowID = 0
-        let err = _AXUIElementGetWindow(element, &windowID)
-        if err == .success, windowID != 0 {
-            results.append((element: element, windowID: windowID))
-            remaining?.remove(windowID)
+        var wid: CGWindowID = 0
+        let err = _AXUIElementGetWindow(element, &wid)
+        if err == .success, wid != 0 {
+            let normalized = canonicalizeDiscoveredElement(
+                element,
+                expectedWindowID: wid,
+                windowAttribute: { candidate in
+                    var windowValue: AnyObject?
+                    let result = AXUIElementCopyAttributeValue(
+                        candidate,
+                        kAXWindowAttribute as CFString,
+                        &windowValue
+                    )
+                    guard result == .success, let windowValue else {
+                        return nil
+                    }
+                    // AX value is a CFTypeRef; cast succeeds when non-nil.
+                    let windowElement = windowValue as! AXUIElement // swiftlint:disable:this force_cast
+                    return windowElement
+                },
+                windowID: { candidate in
+                    var candidateWindowID: CGWindowID = 0
+                    let result = _AXUIElementGetWindow(candidate, &candidateWindowID)
+                    guard result == .success, candidateWindowID != 0 else {
+                        return nil
+                    }
+                    return candidateWindowID
+                }
+            )
+            results.append((element: normalized, windowID: wid))
+            remaining?.remove(wid)
             if let r = remaining, r.isEmpty { break }
         }
     }
