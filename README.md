@@ -1,37 +1,33 @@
-## What is Tabbed
+# Tabbed
+![](./app-screenshot.jpeg)
 
-Tabbed is a native macOS menu bar utility that groups arbitrary application windows into tab groups with browser-style floating tab bars. Built with Swift 5.9, targeting macOS 13.0+. Uses Accessibility APIs and private CoreGraphics SPIs for window management.
+## What is Tabbed?
 
-## Build Prerequisites
+Tabbed is a macos utility which lets you make your application windows tabs in a browser-inspired tab group metawindow. 
 
+### How it works:
+- windows in a group are synced to be in the same spot behind each other, and the tab bar is rendered on top. does not take over your system much beyond that
+
+## Features:
+- Supports maximization and window snapping, should work in tandem with other window managers
+- AltTab inspired quick switching functionality, which switches between and within window groups (by default replacing the macos model of switching between / within individual apps)
+- quick app launcher with hyper+t (default) shortcut
+- name your window groups and rename your tabs
+- true fullscreen app handling is still being worked on...
+- open source so you can just vibe code whatever changes you want... feel free to PR
+
+## Installation
+Tabbed is still in alpha / being worked on, so you will have to build it yourself. \
+To build make sure you have the following installed:
 - `xcodegen` (install with `brew install xcodegen`)
-- macOS 13.0+
+- macOS 13.0+ (tested on macos 15 on m1 air)
 - Xcode 15+ (includes Swift 5.9 toolchain and macOS SDK)
-- Xcode Command Line Tools (`xcode-select --install`, if not already installed)
-- Apple Development code-signing identity (recommended, sign into Xcode with your Apple ID)
-- `.env` file with `DEVELOPMENT_TEAM` set (recommended for signed builds, copy from `.env.example`)
+    - Xcode Command Line Tools (`xcode-select --install`, if not already installed)
+- Recommended: Apple Development code-signing identity
+    - sign in with your apple id to xcode
+    - rename .env.example to .env and fill in your own xcode development team id
+- then build and run with `./scripts/buildandrun.sh`   
 
-## Build & Test
-
-- **Build & Run:** `scripts/buildandrun.sh` (quits existing instance, builds, and opens the app)
-- **Build:** `scripts/build.sh` (runs xcodegen + xcodebuild, silent on success)
-- **Test:** `scripts/test.sh` (runs unit tests, silent on success)
-
-The project uses **XcodeGen** (`project.yml` is the source of truth, `.xcodeproj` is gitignored). The build script uses `DEVELOPMENT_TEAM` from `.env` when available, and otherwise builds unsigned. Apple Development signing is recommended because it preserves TCC accessibility permission persistence across rebuilds.
+Will work on distributing a download coming soon
 
 
-## Architecture
-
-### Layers
-
-**AppDelegate** is the central orchestrator — owns all managers, wires up event callbacks, coordinates between layers. It's extended across multiple files (`TabGroups.swift`, `WindowEventHandlers.swift`, `QuickSwitcher.swift`, `AutoCapture.swift`, `NotificationSuppression.swift`, `TabCycling.swift`).
-
-**Platform layer** (`Tabbed/Platform/`) — low-level macOS API wrappers, all implemented as enum namespaces (stateless)
-
-**Features** (`Tabbed/features/`):
-- `TabGroups/` — core tab grouping: models (`WindowInfo`, `TabGroup`), managers (`GroupManager`, `WindowManager`, `WindowObserver`), views (`TabBarPanel`, `TabBarView`, `WindowPickerView`)
-- `QuickSwitcher/` — alt-tab style switcher UI (global cross-app and within-group cycling)
-- `SessionRestore/` — persist/restore tab groups across app launches
-- `AutoCapture/` — auto-add new windows to a group when it fills the screen
-- `Settings/` — settings UI
-- `MenuBar/` — status bar menu
