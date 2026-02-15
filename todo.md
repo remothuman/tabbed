@@ -1,20 +1,16 @@
 
+- do a pass on default settings and clean install
+
 - hyper t autojoin should work 
 
 - if window confirms delete wait until that happens to remove from tab
 
 - two instances of preview focusing between them wrong window stays on top...
-
-
-- allow autogroup 1 window in never group mode
-
 - improve dragging
     - too easy to drag tab off
 
 
 - autocapture AND mode
-
-- dont round top corners in fullscreen mode
 
 - sometimes fails to switch to window properly (alttab eg controls window (accessory window) - even alttab does too, but it properly puts it as second in this case instead of acting like switch was sucessful. not 100% what to do)
 
