@@ -16,6 +16,7 @@ The project uses **XcodeGen** (`project.yml` is the source of truth, `.xcodeproj
 
 ## Logging
 log with Logger.swift, logs are written to logs/Tabbed.log
+agents can read these logs to help diagnose issues
 
 ## Architecture
 
