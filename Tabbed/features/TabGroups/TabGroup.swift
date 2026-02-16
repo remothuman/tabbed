@@ -60,6 +60,10 @@ class TabGroup: Identifiable, ObservableObject {
         windows.filter { $0.isPinned && !$0.isSeparator }.count
     }
 
+    var superPinnedCount: Int {
+        windows.filter { $0.pinState == .super && !$0.isSeparator }.count
+    }
+
     init(windows: [WindowInfo], frame: CGRect, spaceID: UInt64 = 0, name: String? = nil) {
         self.windows = windows
         self.activeIndex = 0
@@ -86,8 +90,14 @@ class TabGroup: Identifiable, ObservableObject {
         guard !contains(windowID: window.id) else { return }
         let insertionIndex: Int
         if window.isPinned && !window.isSeparator {
-            let boundary = pinnedCount
-            insertionIndex = max(0, min(index ?? boundary, boundary))
+            if window.pinState == .super {
+                let boundary = superPinnedCount
+                insertionIndex = max(0, min(index ?? boundary, boundary))
+            } else {
+                let minIndex = superPinnedCount
+                let maxIndex = pinnedCount
+                insertionIndex = max(minIndex, min(index ?? maxIndex, maxIndex))
+            }
         } else {
             let boundary = pinnedCount
             insertionIndex = max(boundary, min(index ?? windows.count, windows.count))
@@ -308,8 +318,9 @@ class TabGroup: Identifiable, ObservableObject {
         }
 
         let pinnedBefore = pinnedCount
-        windows[sourceIndex].isPinned = true
-        let targetPinnedIndex = max(0, min(pinnedIndex ?? pinnedBefore, pinnedBefore))
+        windows[sourceIndex].pinState = .normal
+        let minPinnedIndex = superPinnedCount
+        let targetPinnedIndex = max(minPinnedIndex, min(pinnedIndex ?? pinnedBefore, pinnedBefore))
         moveWindowToFinalIndex(from: sourceIndex, to: targetPinnedIndex)
     }
 
@@ -328,8 +339,36 @@ class TabGroup: Identifiable, ObservableObject {
         var changed = false
         for index in windows.indices where ids.contains(windows[index].id) {
             guard !windows[index].isSeparator else { continue }
-            if windows[index].isPinned != pinned {
-                windows[index].isPinned = pinned
+            let nextState: WindowPinState = {
+                if !pinned { return .none }
+                return windows[index].pinState == .super ? .super : .normal
+            }()
+            if windows[index].pinState != nextState {
+                windows[index].pinState = nextState
+                changed = true
+            }
+        }
+        guard changed else { return }
+        normalizePinnedOrder()
+    }
+
+    func setSuperPinned(_ superPinned: Bool, forWindowIDs ids: Set<CGWindowID>, downgradeToNormalWhenUnset: Bool = true) {
+        guard !ids.isEmpty else { return }
+        var changed = false
+        for index in windows.indices where ids.contains(windows[index].id) {
+            guard !windows[index].isSeparator else { continue }
+            let nextState: WindowPinState
+            if superPinned {
+                nextState = .super
+            } else if downgradeToNormalWhenUnset {
+                guard windows[index].pinState == .super else { continue }
+                nextState = .normal
+            } else {
+                guard windows[index].pinState == .super else { continue }
+                nextState = .none
+            }
+            if windows[index].pinState != nextState {
+                windows[index].pinState = nextState
                 changed = true
             }
         }
@@ -341,8 +380,15 @@ class TabGroup: Identifiable, ObservableObject {
         guard let sourceIndex = windows.firstIndex(where: { $0.id == windowID }),
               windows[sourceIndex].isPinned,
               !windows[sourceIndex].isSeparator else { return }
-        let maxIndex = max(0, pinnedCount - 1)
-        let destination = max(0, min(toPinnedIndex, maxIndex))
+        let destination: Int = {
+            if windows[sourceIndex].pinState == .super {
+                let maxSuperIndex = max(0, superPinnedCount - 1)
+                return max(0, min(toPinnedIndex, maxSuperIndex))
+            }
+            let minNormalPinnedIndex = superPinnedCount
+            let maxPinnedIndex = max(minNormalPinnedIndex, pinnedCount - 1)
+            return max(minNormalPinnedIndex, min(toPinnedIndex, maxPinnedIndex))
+        }()
         moveWindowToFinalIndex(from: sourceIndex, to: destination)
     }
 
@@ -378,9 +424,10 @@ class TabGroup: Identifiable, ObservableObject {
 
     private func normalizePinnedOrder() {
         let activeID = activeWindow?.id
-        let pinned = windows.filter { $0.isPinned && !$0.isSeparator }
+        let superPinned = windows.filter { $0.pinState == .super && !$0.isSeparator }
+        let normalPinned = windows.filter { $0.pinState == .normal && !$0.isSeparator }
         let unpinned = windows.filter { !$0.isPinned || $0.isSeparator }
-        windows = pinned + unpinned
+        windows = superPinned + normalPinned + unpinned
 
         if let activeID, let index = windows.firstIndex(where: { $0.id == activeID }) {
             activeIndex = index

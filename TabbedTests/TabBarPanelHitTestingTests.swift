@@ -106,4 +106,27 @@ final class TabBarPanelHitTestingTests: XCTestCase {
             )
         )
     }
+
+    func testGroupNameDragRegionShiftsRightWhenSuperpinSectionIsPresent() {
+        XCTAssertFalse(
+            TabBarPanel.isGroupNameDragRegion(
+                pointX: 49.99,
+                leadingPad: 4,
+                groupCounterWidth: 20,
+                handleWidth: 16,
+                groupNameWidth: 80,
+                superPinnedSectionWidth: 10
+            )
+        )
+        XCTAssertTrue(
+            TabBarPanel.isGroupNameDragRegion(
+                pointX: 50,
+                leadingPad: 4,
+                groupCounterWidth: 20,
+                handleWidth: 16,
+                groupNameWidth: 80,
+                superPinnedSectionWidth: 10
+            )
+        )
+    }
 }

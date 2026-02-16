@@ -55,6 +55,7 @@ extension AppDelegate {
             groups: groupManager.groups,
             zOrderedWindows: zWindows,
             splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSuperPinnedTabsIntoSeparateGroup: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
             splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
 
@@ -73,6 +74,7 @@ extension AppDelegate {
             scope: .global,
             namedGroupLabelMode: switcherConfig.namedGroupLabelMode,
             splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSuperPinnedTabsIntoSeparateGroup: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
             splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         if reverse { switcherController.retreat() } else { switcherController.advance() }
@@ -114,7 +116,7 @@ extension AppDelegate {
             guard let activeWindow = group.activeWindow else { return }
             beginCommitEchoSuppression(targetWindowID: activeWindow.id)
             recordGlobalActivation(.groupWindow(groupID: group.id, windowID: activeWindow.id))
-            lastActiveGroupID = group.id
+            promoteWindowOwnership(windowID: activeWindow.id, group: group)
             group.recordFocus(windowID: activeWindow.id)
             focusWindow(activeWindow)
             if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {
@@ -135,7 +137,7 @@ extension AppDelegate {
             guard let activeWindow = group.activeWindow, windowIDs.contains(activeWindow.id) else { return }
             beginCommitEchoSuppression(targetWindowID: activeWindow.id)
             recordGlobalActivation(.groupWindow(groupID: group.id, windowID: activeWindow.id))
-            lastActiveGroupID = group.id
+            promoteWindowOwnership(windowID: activeWindow.id, group: group)
             group.recordFocus(windowID: activeWindow.id)
             focusWindow(activeWindow)
             if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {

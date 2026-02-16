@@ -15,6 +15,7 @@ struct SwitcherConfig: Equatable {
     var tabCycleStyle: SwitcherStyle = .appIcons
     var namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow
     var splitPinnedTabsIntoSeparateGroup: Bool = false
+    var splitSuperPinnedTabsIntoSeparateGroup: Bool = false
     var splitSeparatedTabsIntoSeparateGroups: Bool = false
 
     private static let userDefaultsKey = "switcherConfig"
@@ -40,6 +41,7 @@ extension SwitcherConfig: Codable {
         case globalStyle, tabCycleStyle
         case namedGroupLabelMode
         case splitPinnedTabsIntoSeparateGroup
+        case splitSuperPinnedTabsIntoSeparateGroup
         case splitSeparatedTabsIntoSeparateGroups
         case style // legacy single-style key
     }
@@ -55,6 +57,7 @@ extension SwitcherConfig: Codable {
         }
         namedGroupLabelMode = try container.decodeIfPresent(NamedGroupLabelMode.self, forKey: .namedGroupLabelMode) ?? .groupAppWindow
         splitPinnedTabsIntoSeparateGroup = try container.decodeIfPresent(Bool.self, forKey: .splitPinnedTabsIntoSeparateGroup) ?? false
+        splitSuperPinnedTabsIntoSeparateGroup = try container.decodeIfPresent(Bool.self, forKey: .splitSuperPinnedTabsIntoSeparateGroup) ?? false
         splitSeparatedTabsIntoSeparateGroups = try container.decodeIfPresent(Bool.self, forKey: .splitSeparatedTabsIntoSeparateGroups) ?? false
     }
 
@@ -64,6 +67,7 @@ extension SwitcherConfig: Codable {
         try container.encode(tabCycleStyle, forKey: .tabCycleStyle)
         try container.encode(namedGroupLabelMode, forKey: .namedGroupLabelMode)
         try container.encode(splitPinnedTabsIntoSeparateGroup, forKey: .splitPinnedTabsIntoSeparateGroup)
+        try container.encode(splitSuperPinnedTabsIntoSeparateGroup, forKey: .splitSuperPinnedTabsIntoSeparateGroup)
         try container.encode(splitSeparatedTabsIntoSeparateGroups, forKey: .splitSeparatedTabsIntoSeparateGroups)
     }
 }

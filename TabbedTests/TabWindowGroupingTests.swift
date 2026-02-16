@@ -16,6 +16,12 @@ final class TabWindowGroupingTests: XCTestCase {
         )
     }
 
+    private func makeSuperPinnedWindow(id: CGWindowID) -> WindowInfo {
+        var window = makeWindow(id: id, pinned: true)
+        window.pinState = .super
+        return window
+    }
+
     func testSegmentsWithoutSplitsReturnSingleManagedSegment() {
         let w1 = makeWindow(id: 1, pinned: true)
         let w2 = makeWindow(id: 2)
@@ -48,6 +54,38 @@ final class TabWindowGroupingTests: XCTestCase {
         XCTAssertEqual(segments, [[1, 2], [3, 4]])
     }
 
+    func testSegmentsSplitSuperPinnedTabsSeparatesSuperPinnedFromOthers() {
+        let superPinned = makeSuperPinnedWindow(id: 1)
+        let pinned = makeWindow(id: 2, pinned: true)
+        let unpinned = makeWindow(id: 3)
+        let group = TabGroup(windows: [superPinned, pinned, unpinned], frame: .zero)
+
+        let segments = TabWindowGrouping.segments(
+            in: group,
+            splitPinnedTabs: false,
+            splitSuperPinnedTabs: true,
+            splitOnSeparators: false
+        )
+
+        XCTAssertEqual(segments, [[1], [2, 3]])
+    }
+
+    func testSegmentsSplitSuperPinnedAndPinnedTabsSeparatesAllThreeBuckets() {
+        let superPinned = makeSuperPinnedWindow(id: 1)
+        let pinned = makeWindow(id: 2, pinned: true)
+        let unpinned = makeWindow(id: 3)
+        let group = TabGroup(windows: [superPinned, pinned, unpinned], frame: .zero)
+
+        let segments = TabWindowGrouping.segments(
+            in: group,
+            splitPinnedTabs: true,
+            splitSuperPinnedTabs: true,
+            splitOnSeparators: false
+        )
+
+        XCTAssertEqual(segments, [[1], [2], [3]])
+    }
+
     func testSegmentsSplitOnSeparatorsUsesSeparatorBoundaries() {
         let w1 = makeWindow(id: 1)
         let separatorA = WindowInfo.separator(withID: 9_998)
@@ -77,6 +115,7 @@ final class TabWindowGroupingTests: XCTestCase {
             in: group,
             focusedWindowID: w3.id,
             splitPinnedTabs: false,
+            splitSuperPinnedTabs: false,
             splitOnSeparators: true
         )
 

@@ -86,10 +86,13 @@ final class MRUTracker {
         groups: [TabGroup],
         zOrderedWindows: [WindowInfo],
         splitPinnedTabsIntoSeparateGroup: Bool = false,
+        splitSuperPinnedTabsIntoSeparateGroup: Bool = false,
         splitSeparatedTabsIntoSeparateGroups: Bool = false
     ) -> [SwitcherItem] {
         let groupFrames = groups.map(\.frame)
-        let splitGroups = splitPinnedTabsIntoSeparateGroup || splitSeparatedTabsIntoSeparateGroups
+        let splitGroups = splitPinnedTabsIntoSeparateGroup
+            || splitSuperPinnedTabsIntoSeparateGroup
+            || splitSeparatedTabsIntoSeparateGroups
 
         struct GroupSegmentKey: Hashable {
             let groupID: UUID
@@ -98,7 +101,7 @@ final class MRUTracker {
 
         var groupsByID: [UUID: TabGroup] = [:]
         var segmentsByKey: [GroupSegmentKey: [CGWindowID]] = [:]
-        var segmentKeyByWindowID: [CGWindowID: GroupSegmentKey] = [:]
+        var segmentKeysByWindowID: [CGWindowID: [GroupSegmentKey]] = [:]
         var segmentKeysByGroupID: [UUID: [GroupSegmentKey]] = [:]
 
         for group in groups {
@@ -106,6 +109,7 @@ final class MRUTracker {
             let segments = TabWindowGrouping.segments(
                 in: group,
                 splitPinnedTabs: splitPinnedTabsIntoSeparateGroup,
+                splitSuperPinnedTabs: splitSuperPinnedTabsIntoSeparateGroup,
                 splitOnSeparators: splitSeparatedTabsIntoSeparateGroups
             )
 
@@ -115,7 +119,7 @@ final class MRUTracker {
                 segmentsByKey[key] = windowIDs
                 groupSegmentKeys.append(key)
                 for windowID in windowIDs {
-                    segmentKeyByWindowID[windowID] = key
+                    segmentKeysByWindowID[windowID, default: []].append(key)
                 }
             }
             segmentKeysByGroupID[group.id] = groupSegmentKeys
@@ -129,6 +133,7 @@ final class MRUTracker {
         var items: [SwitcherItem] = []
         var seenSegmentKeys: Set<GroupSegmentKey> = []
         var seenWindowIDs: Set<CGWindowID> = []
+        var seenSuperPinnedWindowIDs: Set<CGWindowID> = []
 
         func appendSegmentIfNeeded(_ key: GroupSegmentKey) {
             guard seenSegmentKeys.insert(key).inserted,
@@ -136,12 +141,24 @@ final class MRUTracker {
                   let windowIDs = segmentsByKey[key],
                   !windowIDs.isEmpty else { return }
 
+            let dedupedWindowIDs: [CGWindowID]
+            if splitSuperPinnedTabsIntoSeparateGroup {
+                let managedByID = Dictionary(uniqueKeysWithValues: group.managedWindows.map { ($0.id, $0) })
+                dedupedWindowIDs = windowIDs.filter { windowID in
+                    guard managedByID[windowID]?.isSuperPinned == true else { return true }
+                    return seenSuperPinnedWindowIDs.insert(windowID).inserted
+                }
+            } else {
+                dedupedWindowIDs = windowIDs
+            }
+            guard !dedupedWindowIDs.isEmpty else { return }
+
             if splitGroups {
-                items.append(.groupSegment(group, windowIDs: windowIDs))
+                items.append(.groupSegment(group, windowIDs: dedupedWindowIDs))
             } else {
                 items.append(.group(group))
             }
-            seenWindowIDs.formUnion(windowIDs)
+            seenWindowIDs.formUnion(dedupedWindowIDs)
         }
 
         func appendAllSegmentsIfNeeded(for groupID: UUID) {
@@ -155,18 +172,20 @@ final class MRUTracker {
             guard let segmentKeys = segmentKeysByGroupID[groupID], !segmentKeys.isEmpty else { return nil }
 
             if let preferredWindowID,
-               let segmentKey = segmentKeyByWindowID[preferredWindowID],
+               let segmentKey = segmentKeysByWindowID[preferredWindowID]?.first(where: { $0.groupID == groupID }),
                segmentKey.groupID == groupID {
                 return segmentKey
             }
             if let group = groupsByID[groupID] {
                 if let activeWindowID = group.activeWindow?.id,
-                   let segmentKey = segmentKeyByWindowID[activeWindowID],
+                   let segmentKey = segmentKeysByWindowID[activeWindowID]?.first(where: { $0.groupID == groupID }),
                    segmentKey.groupID == groupID {
                     return segmentKey
                 }
-                if let focusedWindowID = group.focusHistory.first(where: { segmentKeyByWindowID[$0]?.groupID == groupID }),
-                   let segmentKey = segmentKeyByWindowID[focusedWindowID],
+                if let focusedWindowID = group.focusHistory.first(where: { windowID in
+                    segmentKeysByWindowID[windowID]?.contains(where: { $0.groupID == groupID }) ?? false
+                }),
+                   let segmentKey = segmentKeysByWindowID[focusedWindowID]?.first(where: { $0.groupID == groupID }),
                    segmentKey.groupID == groupID {
                     return segmentKey
                 }
@@ -196,7 +215,7 @@ final class MRUTracker {
             case .window(let windowID):
                 guard let window = windowsByID[windowID],
                       !seenWindowIDs.contains(windowID),
-                      segmentKeyByWindowID[windowID] == nil else { continue }
+                      segmentKeysByWindowID[windowID] == nil else { continue }
                 items.append(.singleWindow(window))
                 seenWindowIDs.insert(windowID)
             }
@@ -204,8 +223,12 @@ final class MRUTracker {
 
         // Phase 2: remaining windows/groups in z-order.
         for window in zOrderedWindows where !seenWindowIDs.contains(window.id) {
-            if let segmentKey = segmentKeyByWindowID[window.id] {
-                appendSegmentIfNeeded(segmentKey)
+            if let segmentKeys = segmentKeysByWindowID[window.id] {
+                if let unseenSegment = segmentKeys.first(where: { !seenSegmentKeys.contains($0) }) {
+                    appendSegmentIfNeeded(unseenSegment)
+                } else if let firstSegment = segmentKeys.first {
+                    appendSegmentIfNeeded(firstSegment)
+                }
                 continue
             }
 

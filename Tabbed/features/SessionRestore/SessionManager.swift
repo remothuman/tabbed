@@ -5,6 +5,12 @@ enum SessionManager {
     private static let userDefaultsKey = "savedSession"
     private static let bundleAndTitleSeparator = "\u{1f}"
 
+    struct SnapshotWindowIdentity: Hashable {
+        let windowID: CGWindowID
+        let bundleID: String
+        let title: String
+    }
+
     struct LiveWindowIndex {
         let windowByID: [CGWindowID: WindowInfo]
         let windowsByBundleAndTitle: [String: [WindowInfo]]
@@ -22,6 +28,7 @@ enum SessionManager {
                         title: window.title,
                         appName: window.appName,
                         isPinned: window.isPinned,
+                        pinState: window.pinState,
                         customTabName: window.customTabName,
                         isSeparator: window.isSeparator
                     )
@@ -79,10 +86,12 @@ enum SessionManager {
         mode: RestoreMode,
         diagnosticsEnabled: Bool = SessionRestoreDiagnostics.isEnabled()
     ) -> [WindowInfo]? {
-        matchGroup(
+        var sharedMatchesBySnapshotIdentity: [SnapshotWindowIdentity: WindowInfo] = [:]
+        return matchGroup(
             snapshot: snapshot,
             liveWindowIndex: makeLiveWindowIndex(liveWindows: liveWindows),
             alreadyClaimed: alreadyClaimed,
+            sharedMatchesBySnapshotIdentity: &sharedMatchesBySnapshotIdentity,
             mode: mode,
             diagnosticsEnabled: diagnosticsEnabled
         )
@@ -95,6 +104,25 @@ enum SessionManager {
         mode: RestoreMode,
         diagnosticsEnabled: Bool = SessionRestoreDiagnostics.isEnabled()
     ) -> [WindowInfo]? {
+        var sharedMatchesBySnapshotIdentity: [SnapshotWindowIdentity: WindowInfo] = [:]
+        return matchGroup(
+            snapshot: snapshot,
+            liveWindowIndex: liveWindowIndex,
+            alreadyClaimed: alreadyClaimed,
+            sharedMatchesBySnapshotIdentity: &sharedMatchesBySnapshotIdentity,
+            mode: mode,
+            diagnosticsEnabled: diagnosticsEnabled
+        )
+    }
+
+    static func matchGroup(
+        snapshot: GroupSnapshot,
+        liveWindowIndex: LiveWindowIndex,
+        alreadyClaimed: Set<CGWindowID>,
+        sharedMatchesBySnapshotIdentity: inout [SnapshotWindowIdentity: WindowInfo],
+        mode: RestoreMode,
+        diagnosticsEnabled: Bool = SessionRestoreDiagnostics.isEnabled()
+    ) -> [WindowInfo]? {
         var claimed = alreadyClaimed
         var matched: [WindowInfo] = []
 
@@ -103,6 +131,23 @@ enum SessionManager {
                 matched.append(WindowInfo.separator(withID: snap.windowID))
                 continue
             }
+            let snapshotIdentity = SnapshotWindowIdentity(
+                windowID: snap.windowID,
+                bundleID: snap.bundleID,
+                title: snap.title
+            )
+
+            if let reusedMatch = sharedMatchesBySnapshotIdentity[snapshotIdentity] {
+                if diagnosticsEnabled {
+                    Logger.log("[SessionMatch] ✓ reused match: \(snap.appName)(\(snap.windowID)) → live(\(reusedMatch.id))")
+                }
+                var matchedWindow = reusedMatch
+                matchedWindow.pinState = snap.pinState
+                matchedWindow.customTabName = snap.customTabName
+                matched.append(matchedWindow)
+                continue
+            }
+
             // 1. Exact CGWindowID match — window still exists
             if let byID = liveWindowIndex.windowByID[snap.windowID],
                !claimed.contains(byID.id) {
@@ -110,9 +155,10 @@ enum SessionManager {
                     Logger.log("[SessionMatch] ✓ wid match: \(snap.appName)(\(snap.windowID))")
                 }
                 var matchedWindow = byID
-                matchedWindow.isPinned = snap.isPinned
+                matchedWindow.pinState = snap.pinState
                 matchedWindow.customTabName = snap.customTabName
                 matched.append(matchedWindow)
+                sharedMatchesBySnapshotIdentity[snapshotIdentity] = byID
                 claimed.insert(matchedWindow.id)
                 continue
             }
@@ -126,9 +172,10 @@ enum SessionManager {
                     Logger.log("[SessionMatch] ✓ title match: \(snap.appName)(\(snap.windowID)) → live(\(byTitle.id))")
                 }
                 var matchedWindow = byTitle
-                matchedWindow.isPinned = snap.isPinned
+                matchedWindow.pinState = snap.pinState
                 matchedWindow.customTabName = snap.customTabName
                 matched.append(matchedWindow)
+                sharedMatchesBySnapshotIdentity[snapshotIdentity] = byTitle
                 claimed.insert(matchedWindow.id)
                 continue
             }

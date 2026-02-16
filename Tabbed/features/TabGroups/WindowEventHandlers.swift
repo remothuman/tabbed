@@ -61,7 +61,7 @@ extension AppDelegate {
 extension AppDelegate {
 
     func handleWindowMoved(_ windowID: CGWindowID) {
-        guard let group = groupManager.group(for: windowID),
+        guard let group = ownerGroup(for: windowID),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
@@ -97,11 +97,27 @@ extension AppDelegate {
         evaluateAutoCapture()
     }
 
+    private func setWindowFullscreenState(_ isFullscreened: Bool, for windowID: CGWindowID) {
+        for group in groupManager.groups(for: windowID) {
+            if let index = group.windows.firstIndex(where: { $0.id == windowID }) {
+                group.windows[index].isFullscreened = isFullscreened
+            }
+        }
+    }
+
+    private func setWindowElement(_ element: AXUIElement, for windowID: CGWindowID) {
+        for group in groupManager.groups(for: windowID) {
+            if let index = group.windows.firstIndex(where: { $0.id == windowID }) {
+                group.windows[index].element = element
+            }
+        }
+    }
+
     func handleWindowResized(_ windowID: CGWindowID) {
         // Check if a fullscreened window is exiting fullscreen.
         // This runs before the main guard because the fullscreened window
         // won't be the activeWindow (a visible tab is active instead).
-        if let group = groupManager.group(for: windowID),
+        if let group = ownerGroup(for: windowID),
            let idx = group.windows.firstIndex(where: { $0.id == windowID }),
            idx < group.windows.count,
            group.windows[idx].isFullscreened {
@@ -113,7 +129,7 @@ extension AppDelegate {
             return
         }
 
-        guard let group = groupManager.group(for: windowID),
+        guard let group = ownerGroup(for: windowID),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
@@ -125,9 +141,7 @@ extension AppDelegate {
         if AccessibilityHelper.isFullScreen(activeWindow.element) {
             Logger.log("[FULLSCREEN] Window \(windowID) entered fullscreen in group \(group.id)")
             expectedFrames.removeValue(forKey: windowID)
-            if let idx = group.windows.firstIndex(where: { $0.id == windowID }) {
-                group.windows[idx].isFullscreened = true
-            }
+            setWindowFullscreenState(true, for: windowID)
             // Switch to next visible tab if available
             if let nextVisible = group.visibleWindows.first {
                 group.switchTo(windowID: nextVisible.id)
@@ -214,7 +228,7 @@ extension AppDelegate {
 
     func handleWindowFocused(pid: pid_t, element: AXUIElement) {
         guard let windowID = AccessibilityHelper.windowID(for: element),
-              let group = groupManager.group(for: windowID),
+              let group = ownerGroup(for: windowID),
               let panel = tabBarPanels[group.id] else { return }
 
         // Don't let a fullscreened window become the active tab —
@@ -232,7 +246,7 @@ extension AppDelegate {
                 Logger.log("[DEBUG] handleWindowFocused: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (pid=\(pid))")
             }
             group.switchTo(windowID: windowID)
-            lastActiveGroupID = group.id
+            promoteWindowOwnership(windowID: windowID, group: group)
             if !group.isCycling {
                 group.recordFocus(windowID: windowID)
             }
@@ -254,23 +268,31 @@ extension AppDelegate {
 
     func handleWindowDestroyed(_ windowID: CGWindowID) {
         mruTracker.removeWindow(windowID)
-        guard let group = groupManager.group(for: windowID),
-              let panel = tabBarPanels[group.id],
-              let window = group.windows.first(where: { $0.id == windowID }) else { return }
+        let containingGroups = groupManager.groups(for: windowID)
+        guard !containingGroups.isEmpty,
+              let representativeWindow = containingGroups
+                .compactMap({ group in group.windows.first(where: { $0.id == windowID }) })
+                .first else { return }
 
-        Logger.log("[DEBUG] handleWindowDestroyed: windowID=\(windowID), stillExists=\(AccessibilityHelper.windowExists(id: windowID)), activeID=\(group.activeWindow.map { String($0.id) } ?? "nil")")
+        Logger.log("[DEBUG] handleWindowDestroyed: windowID=\(windowID), stillExists=\(AccessibilityHelper.windowExists(id: windowID)), groups=\(containingGroups.count)")
 
-        windowObserver.handleDestroyedWindow(pid: window.ownerPID, elementHash: CFHash(window.element))
+        windowObserver.handleDestroyedWindow(
+            pid: representativeWindow.ownerPID,
+            elementHash: CFHash(representativeWindow.element)
+        )
 
         if AccessibilityHelper.windowExists(id: windowID) {
             // AXUIElement was destroyed but the window is still on-screen.
             // This can happen when apps recreate their AX hierarchy (e.g. web
             // browsers during navigation). Try to re-acquire a fresh element.
-            let newElements = AccessibilityHelper.windowElements(for: window.ownerPID)
-            if let newElement = newElements.first(where: { AccessibilityHelper.windowID(for: $0) == windowID }),
-               let index = group.windows.firstIndex(where: { $0.id == windowID }) {
-                group.windows[index].element = newElement
-                windowObserver.observe(window: group.windows[index])
+            let newElements = AccessibilityHelper.windowElements(for: representativeWindow.ownerPID)
+            if let newElement = newElements.first(where: { AccessibilityHelper.windowID(for: $0) == windowID }) {
+                setWindowElement(newElement, for: windowID)
+                if let refreshedWindow = groupManager.groups(for: windowID)
+                    .compactMap({ group in group.windows.first(where: { $0.id == windowID }) })
+                    .first {
+                    beginObservingWindowIfNeeded(refreshedWindow)
+                }
                 return
             }
             // Window is in CGWindowList but has no AX element — likely the
@@ -278,26 +300,20 @@ extension AppDelegate {
             Logger.log("[DEBUG] handleWindowDestroyed: windowID=\(windowID) on-screen but no AX element, removing")
         }
 
-        removeDestroyedWindow(windowID, from: group, panel: panel)
-    }
-
-    private func removeDestroyedWindow(_ windowID: CGWindowID, from group: TabGroup, panel: TabBarPanel) {
         expectedFrames.removeValue(forKey: windowID)
-        groupManager.releaseWindow(withID: windowID, from: group)
-
-        if !groupManager.groups.contains(where: { $0.id == group.id }) {
-            handleGroupDissolution(group: group, panel: panel)
-        } else if let newActive = group.activeWindow {
-            bringTabToFront(newActive, in: group)
-        }
+        removeWindowFromAllGroups(windowID: windowID)
         evaluateAutoCapture()
     }
 
     func handleTitleChanged(_ windowID: CGWindowID) {
-        guard let group = groupManager.group(for: windowID) else { return }
-        if let index = group.windows.firstIndex(where: { $0.id == windowID }),
-           let newTitle = AccessibilityHelper.getTitle(of: group.windows[index].element) {
-            groupManager.updateWindowTitle(withID: windowID, in: group, to: newTitle)
+        let containingGroups = groupManager.groups(for: windowID)
+        guard !containingGroups.isEmpty,
+              let representativeWindow = containingGroups
+                .compactMap({ group in group.windows.first(where: { $0.id == windowID }) })
+                .first,
+              let newTitle = AccessibilityHelper.getTitle(of: representativeWindow.element) else { return }
+        for group in containingGroups {
+            _ = groupManager.updateWindowTitle(withID: windowID, in: group, to: newTitle)
         }
     }
 
@@ -306,6 +322,7 @@ extension AppDelegate {
         let pid = app.processIdentifier
 
         let appElement = AccessibilityHelper.appElement(for: pid)
+        AXUIElementSetMessagingTimeout(appElement, 0.5 as Float)
         var focusedValue: AnyObject?
         let result = AXUIElementCopyAttributeValue(
             appElement, kAXFocusedWindowAttribute as CFString, &focusedValue
@@ -320,7 +337,7 @@ extension AppDelegate {
 
         // Record entity-level MRU (skip during active switcher sessions and commit echoes)
         if !suppressGroupState {
-            if let group = groupManager.group(for: windowID) {
+            if let group = ownerGroup(for: windowID) {
                 recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
             } else {
                 recordGlobalActivation(.window(windowID))
@@ -328,7 +345,7 @@ extension AppDelegate {
         }
 
         // Group state updates
-        guard let group = groupManager.group(for: windowID),
+        guard let group = ownerGroup(for: windowID),
               let panel = tabBarPanels[group.id] else { return }
 
         // Don't let a fullscreened window become the active tab
@@ -340,7 +357,7 @@ extension AppDelegate {
                 Logger.log("[DEBUG] handleAppActivated: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (app=\(app.localizedName ?? "?"), pid=\(pid))")
             }
             group.switchTo(windowID: windowID)
-            lastActiveGroupID = group.id
+            promoteWindowOwnership(windowID: windowID, group: group)
             if !group.isCycling {
                 group.recordFocus(windowID: windowID)
             }
@@ -411,10 +428,9 @@ extension AppDelegate {
 
             let groupFrame = group.frame
             let groupSqueezeDelta = group.tabBarSqueezeDelta
+            let strayWindows = group.managedWindows.filter { strayIDs.contains($0.id) }
 
-            for windowID in strayIDs {
-                guard let window = group.managedWindows.first(where: { $0.id == windowID }) else { continue }
-                windowObserver.stopObserving(window: window)
+            for window in strayWindows {
                 expectedFrames.removeValue(forKey: window.id)
 
                 // Window will get its own tab bar — keep the squeezed frame
@@ -426,6 +442,9 @@ extension AppDelegate {
             }
 
             groupManager.releaseWindows(withIDs: Set(strayIDs), from: group)
+            for window in strayWindows {
+                stopObservingWindowIfUnused(window)
+            }
 
             if !groupManager.groups.contains(where: { $0.id == group.id }) {
                 handleGroupDissolution(group: group, panel: panel)
@@ -450,16 +469,15 @@ extension AppDelegate {
 
     func handleFullscreenExit(windowID: CGWindowID, group: TabGroup) {
         guard let panel = tabBarPanels[group.id],
-              let idx = group.windows.firstIndex(where: { $0.id == windowID }),
-              idx < group.windows.count else { return }
+              group.windows.contains(where: { $0.id == windowID }) else { return }
 
         Logger.log("[FULLSCREEN] Window \(windowID) exited fullscreen in group \(group.id)")
-        group.windows[idx].isFullscreened = false
+        setWindowFullscreenState(false, for: windowID)
 
         // Make this the active tab immediately so the tab bar updates
         group.switchTo(windowID: windowID)
         group.recordFocus(windowID: windowID)
-        lastActiveGroupID = group.id
+        promoteWindowOwnership(windowID: windowID, group: group)
 
         // Ensure tab bar is visible (it may have been hidden if all were fullscreened)
         let maximized = isGroupMaximized(group).0

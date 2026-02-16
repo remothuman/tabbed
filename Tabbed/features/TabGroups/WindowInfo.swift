@@ -1,6 +1,12 @@
 import AppKit
 import ApplicationServices
 
+enum WindowPinState: String, Codable {
+    case none
+    case normal
+    case `super`
+}
+
 struct WindowInfo: Identifiable, Equatable {
     let id: CGWindowID
     var element: AXUIElement
@@ -14,8 +20,46 @@ struct WindowInfo: Identifiable, Equatable {
     /// where the AX element is a placeholder app element.
     var cgBounds: CGRect?
     var isFullscreened: Bool = false
-    var isPinned: Bool = false
+    var pinState: WindowPinState = .none
     var isSeparator: Bool = false
+
+    var isPinned: Bool {
+        get { pinState != .none }
+        set { pinState = newValue ? .normal : .none }
+    }
+
+    var isSuperPinned: Bool {
+        pinState == .super
+    }
+
+    init(
+        id: CGWindowID,
+        element: AXUIElement,
+        ownerPID: pid_t,
+        bundleID: String,
+        title: String,
+        appName: String,
+        customTabName: String? = nil,
+        icon: NSImage? = nil,
+        cgBounds: CGRect? = nil,
+        isFullscreened: Bool = false,
+        isPinned: Bool = false,
+        isSeparator: Bool = false,
+        pinState: WindowPinState? = nil
+    ) {
+        self.id = id
+        self.element = element
+        self.ownerPID = ownerPID
+        self.bundleID = bundleID
+        self.title = title
+        self.appName = appName
+        self.customTabName = customTabName
+        self.icon = icon
+        self.cgBounds = cgBounds
+        self.isFullscreened = isFullscreened
+        self.pinState = pinState ?? (isPinned ? .normal : .none)
+        self.isSeparator = isSeparator
+    }
 
     static func separator(withID id: CGWindowID) -> WindowInfo {
         WindowInfo(
@@ -44,7 +88,7 @@ struct WindowInfo: Identifiable, Equatable {
     static func == (lhs: WindowInfo, rhs: WindowInfo) -> Bool {
         lhs.id == rhs.id &&
             lhs.isFullscreened == rhs.isFullscreened &&
-            lhs.isPinned == rhs.isPinned &&
+            lhs.pinState == rhs.pinState &&
             lhs.isSeparator == rhs.isSeparator
     }
 }

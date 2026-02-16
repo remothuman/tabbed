@@ -81,12 +81,14 @@ extension AppDelegate {
         }
 
         var claimed = Set<CGWindowID>()
+        var sharedMatchesBySnapshotIdentity: [SessionManager.SnapshotWindowIdentity: WindowInfo] = [:]
 
         for (snapshotIndex, snapshot) in snapshots.enumerated() {
             guard let matchedWindows = SessionManager.matchGroup(
                 snapshot: snapshot,
                 liveWindowIndex: liveWindowIndex,
                 alreadyClaimed: claimed,
+                sharedMatchesBySnapshotIdentity: &sharedMatchesBySnapshotIdentity,
                 mode: mode,
                 diagnosticsEnabled: diagnosticsEnabled
             ) else {
@@ -125,7 +127,8 @@ extension AppDelegate {
                 frame: restoredFrame,
                 squeezeDelta: effectiveSqueezeDelta,
                 activeIndex: frontmostIndex,
-                name: snapshot.name
+                name: snapshot.name,
+                allowSharedMembership: true
             )
         }
 
@@ -151,7 +154,7 @@ extension AppDelegate {
                    let group = groupManager.group(for: windowID) {
                    group.switchTo(windowID: windowID)
                     group.recordFocus(windowID: windowID)
-                    lastActiveGroupID = group.id
+                    promoteWindowOwnership(windowID: windowID, group: group)
                     recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
                     Logger.log("[SessionRestore] synced active tab to focused window wid=\(windowID) in group=\(group.id)")
                 }

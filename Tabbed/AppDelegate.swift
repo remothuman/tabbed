@@ -67,6 +67,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var selectedTabIDsByGroupID: [UUID: Set<CGWindowID>] = [:]
     /// User-defined ordering for maximized-group counters, keyed by space ID.
     var maximizedCounterOrderBySpaceID: [UInt64: [UUID]] = [:]
+    /// Window IDs mirrored into a group specifically because of a superpin.
+    var superpinMirroredWindowIDsByGroupID: [UUID: Set<CGWindowID>] = [:]
+    /// Last observed maximized status per group, used to detect maximize/unmaximize transitions.
+    var lastKnownMaximizedStateByGroupID: [UUID: Bool] = [:]
+    /// Re-entrancy guard while applying maximize-driven superpin transitions.
+    var isApplyingSuperpinMaximizeTransitions = false
 
     var isCommitEchoSuppressionActive: Bool {
         guard let deadline = pendingCommitEchoDeadline else { return false }

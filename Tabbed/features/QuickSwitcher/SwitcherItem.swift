@@ -49,6 +49,23 @@ enum SwitcherItem: Identifiable {
         }
     }
 
+    /// Name used for named-group labels in switcher UI.
+    /// Superpin-only segments are shown as a global pinned bucket.
+    var namedGroupDisplayName: String? {
+        switch self {
+        case .singleWindow:
+            return nil
+        case .group(let group):
+            return group.displayName
+        case .groupSegment(let group, let windowIDs):
+            let represented = representedWindows(in: group, windowIDs: windowIDs)
+            if !represented.isEmpty, represented.allSatisfy(\.isSuperPinned) {
+                return "Pinned"
+            }
+            return group.displayName
+        }
+    }
+
     /// Title to display — active window's title (or app name if empty).
     var displayTitle: String {
         switch self {

@@ -105,6 +105,18 @@ final class SessionMRUTests: XCTestCase {
         XCTAssertEqual(loaded.first?.windows.last?.isPinned, false)
     }
 
+    func testSaveSessionPersistsSuperPinnedWindowState() {
+        var superPinnedWindow = makeWindow(id: 1, app: "Alpha")
+        superPinnedWindow.pinState = .super
+        let group = TabGroup(windows: [superPinnedWindow, makeWindow(id: 2, app: "Alpha")], frame: .zero)
+
+        SessionManager.saveSession(groups: [group], mruGroupOrder: [])
+
+        let loaded = SessionManager.loadSession()!
+        XCTAssertEqual(loaded.first?.windows.first?.pinState, .super)
+        XCTAssertEqual(loaded.first?.windows.first?.isPinned, true)
+    }
+
     func testSaveSessionPersistsCustomTabName() {
         var renamedWindow = makeWindow(id: 1, app: "Alpha")
         renamedWindow.customTabName = "Daily Focus"
@@ -196,6 +208,38 @@ final class SessionMRUTests: XCTestCase {
         XCTAssertEqual(matched?.last?.isPinned, false)
     }
 
+    func testMatchGroupAppliesSuperPinStateFromSnapshot() {
+        let live = [
+            makeWindow(id: 10, app: "Alpha")
+        ]
+        let snapshot = GroupSnapshot(
+            windows: [
+                WindowSnapshot(
+                    windowID: 10,
+                    bundleID: "com.Alpha",
+                    title: "Alpha Window",
+                    appName: "Alpha",
+                    isPinned: true,
+                    pinState: .super
+                )
+            ],
+            activeIndex: 0,
+            frame: CodableRect(.zero),
+            tabBarSqueezeDelta: 0,
+            name: nil
+        )
+
+        let matched = SessionManager.matchGroup(
+            snapshot: snapshot,
+            liveWindows: live,
+            alreadyClaimed: [],
+            mode: .always
+        )
+
+        XCTAssertEqual(matched?.count, 1)
+        XCTAssertEqual(matched?.first?.pinState, .super)
+    }
+
     func testMatchGroupAppliesCustomTabNameFromSnapshot() {
         let live = [
             makeWindow(id: 10, app: "Alpha")
@@ -225,5 +269,64 @@ final class SessionMRUTests: XCTestCase {
         )
 
         XCTAssertEqual(matched?.first?.customTabName, "Focus")
+    }
+
+    func testMatchGroupAllowsCrossGroupReuseForSameSnapshotIdentity() {
+        let live = [makeWindow(id: 100, app: "Alpha")]
+        let liveIndex = SessionManager.makeLiveWindowIndex(liveWindows: live)
+        var claimed = Set<CGWindowID>()
+        var sharedMatches: [SessionManager.SnapshotWindowIdentity: WindowInfo] = [:]
+
+        let snapshotA = GroupSnapshot(
+            windows: [
+                WindowSnapshot(
+                    windowID: 10,
+                    bundleID: "com.Alpha",
+                    title: "Alpha Window",
+                    appName: "Alpha",
+                    isPinned: false
+                )
+            ],
+            activeIndex: 0,
+            frame: CodableRect(.zero),
+            tabBarSqueezeDelta: 0,
+            name: "A"
+        )
+        let snapshotB = GroupSnapshot(
+            windows: [
+                WindowSnapshot(
+                    windowID: 10,
+                    bundleID: "com.Alpha",
+                    title: "Alpha Window",
+                    appName: "Alpha",
+                    isPinned: true
+                )
+            ],
+            activeIndex: 0,
+            frame: CodableRect(.zero),
+            tabBarSqueezeDelta: 0,
+            name: "B"
+        )
+
+        let firstMatch = SessionManager.matchGroup(
+            snapshot: snapshotA,
+            liveWindowIndex: liveIndex,
+            alreadyClaimed: claimed,
+            sharedMatchesBySnapshotIdentity: &sharedMatches,
+            mode: .always
+        )
+        claimed.formUnion(firstMatch?.map(\.id) ?? [])
+
+        let secondMatch = SessionManager.matchGroup(
+            snapshot: snapshotB,
+            liveWindowIndex: liveIndex,
+            alreadyClaimed: claimed,
+            sharedMatchesBySnapshotIdentity: &sharedMatches,
+            mode: .always
+        )
+
+        XCTAssertEqual(firstMatch?.first?.id, 100)
+        XCTAssertEqual(secondMatch?.first?.id, 100)
+        XCTAssertEqual(secondMatch?.first?.isPinned, true)
     }
 }

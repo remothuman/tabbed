@@ -17,6 +17,12 @@ final class MRUTrackerTests: XCTestCase {
         )
     }
 
+    private func makeSuperPinnedWindow(id: CGWindowID, appName: String = "App") -> WindowInfo {
+        var window = makeWindow(id: id, appName: appName)
+        window.pinState = .super
+        return window
+    }
+
     func testRecordActivationDeduplicatesAndMovesEntryToFront() {
         let tracker = MRUTracker()
 
@@ -231,6 +237,44 @@ final class MRUTrackerTests: XCTestCase {
         XCTAssertEqual(items[1].windowIDs, [61])
     }
 
+    func testBuildSwitcherItemsSplitBySuperPinnedTabsSeparatesSuperPinnedFromOthers() {
+        let tracker = MRUTracker()
+        let superPinned = makeSuperPinnedWindow(id: 64, appName: "Super")
+        let pinned = makeWindow(id: 65, appName: "Pinned")
+        let unpinned = makeWindow(id: 66, appName: "Unpinned")
+        var mutablePinned = pinned
+        mutablePinned.isPinned = true
+        let group = TabGroup(windows: [superPinned, mutablePinned, unpinned], frame: .zero)
+
+        let items = tracker.buildSwitcherItems(
+            groups: [group],
+            zOrderedWindows: [superPinned, mutablePinned, unpinned],
+            splitSuperPinnedTabsIntoSeparateGroup: true
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].windowIDs, [64])
+        XCTAssertEqual(items[1].windowIDs, [65, 66])
+    }
+
+    func testBuildSwitcherItemsSplitBySuperPinnedTabsDeduplicatesMirroredSuperPins() {
+        let tracker = MRUTracker()
+        let sharedSuperPin = makeSuperPinnedWindow(id: 901, appName: "SharedSuper")
+        let groupAUnpinned = makeWindow(id: 902, appName: "A")
+        let groupBUnpinned = makeWindow(id: 903, appName: "B")
+        let groupA = TabGroup(windows: [sharedSuperPin, groupAUnpinned], frame: .zero)
+        let groupB = TabGroup(windows: [sharedSuperPin, groupBUnpinned], frame: .zero)
+
+        let items = tracker.buildSwitcherItems(
+            groups: [groupA, groupB],
+            zOrderedWindows: [sharedSuperPin, groupAUnpinned, groupBUnpinned],
+            splitSuperPinnedTabsIntoSeparateGroup: true
+        )
+
+        let superPinMentions = items.flatMap(\.windowIDs).filter { $0 == sharedSuperPin.id }.count
+        XCTAssertEqual(superPinMentions, 1)
+    }
+
     func testBuildSwitcherItemsSplitGroupsInterleaveBySegmentMRU() {
         let tracker = MRUTracker()
 
@@ -256,6 +300,21 @@ final class MRUTrackerTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(items.count, 2)
         XCTAssertEqual(items[0].windowIDs, [81])
         XCTAssertEqual(items[1].windowIDs, [72])
+    }
+
+    func testBuildSwitcherItemsKeepsBothSharedWindowGroupsVisible() {
+        let tracker = MRUTracker()
+        let shared = makeWindow(id: 901, appName: "Shared")
+        let groupA = TabGroup(windows: [shared], frame: .zero)
+        let groupB = TabGroup(windows: [shared], frame: .zero)
+
+        tracker.recordActivation(.groupWindow(groupID: groupA.id, windowID: shared.id))
+        tracker.recordActivation(.groupWindow(groupID: groupB.id, windowID: shared.id))
+
+        let items = tracker.buildSwitcherItems(groups: [groupA, groupB], zOrderedWindows: [shared])
+        let groupIDs = Set(items.compactMap { $0.tabGroup?.id })
+
+        XCTAssertEqual(groupIDs, Set([groupA.id, groupB.id]))
     }
 
     func testRecordActivationPrunesEntriesToMax() {

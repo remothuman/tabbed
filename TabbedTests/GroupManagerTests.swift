@@ -373,4 +373,59 @@ final class GroupManagerTests: XCTestCase {
         wait(for: [changeExpectation], timeout: 0.2)
     }
 
+    // MARK: - Virtual Tabs
+
+    func testAddWindowAllowsSharedMembershipWhenEnabled() {
+        let gm = GroupManager()
+        let shared = makeWindow(id: 1)
+        let groupA = gm.createGroup(with: [shared], frame: .zero)!
+        let groupB = gm.createGroup(with: [makeWindow(id: 2)], frame: .zero)!
+
+        let added = gm.addWindow(shared, to: groupB, allowSharedMembership: true)
+
+        XCTAssertTrue(added)
+        XCTAssertEqual(groupB.managedWindows.map(\.id), [2, 1])
+        XCTAssertEqual(gm.membershipCount(for: 1), 2)
+        XCTAssertEqual(Set(gm.groups(for: 1).map(\.id)), Set([groupA.id, groupB.id]))
+    }
+
+    func testAddWindowRejectsSharedMembershipWhenDisabled() {
+        let gm = GroupManager()
+        let shared = makeWindow(id: 1)
+        _ = gm.createGroup(with: [shared], frame: .zero)!
+        let groupB = gm.createGroup(with: [makeWindow(id: 2)], frame: .zero)!
+
+        let added = gm.addWindow(shared, to: groupB, allowSharedMembership: false)
+
+        XCTAssertFalse(added)
+        XCTAssertEqual(gm.membershipCount(for: 1), 1)
+    }
+
+    func testPromotePrimaryGroupUpdatesCompatibilityLookup() {
+        let gm = GroupManager()
+        let shared = makeWindow(id: 1)
+        let groupA = gm.createGroup(with: [shared], frame: .zero)!
+        let groupB = gm.createGroup(with: [makeWindow(id: 2)], frame: .zero)!
+        XCTAssertTrue(gm.addWindow(shared, to: groupB, allowSharedMembership: true))
+
+        XCTAssertEqual(gm.group(for: shared.id)?.id, groupA.id)
+        XCTAssertTrue(gm.promotePrimaryGroup(windowID: shared.id, groupID: groupB.id))
+        XCTAssertEqual(gm.group(for: shared.id)?.id, groupB.id)
+    }
+
+    func testReleaseWindowFromOneGroupKeepsWindowGroupedViaOtherMembership() {
+        let gm = GroupManager()
+        let shared = makeWindow(id: 1)
+        let groupA = gm.createGroup(with: [shared], frame: .zero)!
+        let groupB = gm.createGroup(with: [makeWindow(id: 2)], frame: .zero)!
+        XCTAssertTrue(gm.addWindow(shared, to: groupB, allowSharedMembership: true))
+
+        let removed = gm.releaseWindow(withID: shared.id, from: groupA)
+
+        XCTAssertNotNil(removed)
+        XCTAssertTrue(gm.isWindowGrouped(shared.id))
+        XCTAssertEqual(gm.membershipCount(for: shared.id), 1)
+        XCTAssertEqual(gm.group(for: shared.id)?.id, groupB.id)
+    }
+
 }

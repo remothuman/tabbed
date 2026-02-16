@@ -2,25 +2,43 @@ import Foundation
 import CoreGraphics
 
 enum TabWindowGrouping {
+    private enum SegmentPartition: Equatable {
+        case all
+        case superPinned
+        case pinned
+        case unpinned
+    }
+
     static func segments(
         in group: TabGroup,
         splitPinnedTabs: Bool,
+        splitSuperPinnedTabs: Bool = false,
         splitOnSeparators: Bool
     ) -> [[CGWindowID]] {
         let allManagedIDs = group.managedWindows.map(\.id)
-        guard splitPinnedTabs || splitOnSeparators else {
+        guard splitPinnedTabs || splitSuperPinnedTabs || splitOnSeparators else {
             return allManagedIDs.isEmpty ? [] : [allManagedIDs]
         }
 
         var segments: [[CGWindowID]] = []
         var currentSegment: [CGWindowID] = []
-        var currentPinnedState: Bool?
+        var currentPartition: SegmentPartition?
 
         func flushCurrentSegment() {
             guard !currentSegment.isEmpty else { return }
             segments.append(currentSegment)
             currentSegment = []
-            currentPinnedState = nil
+            currentPartition = nil
+        }
+
+        func partition(for window: WindowInfo) -> SegmentPartition {
+            if splitSuperPinnedTabs, window.isSuperPinned {
+                return .superPinned
+            }
+            if splitPinnedTabs {
+                return window.isPinned ? .pinned : .unpinned
+            }
+            return .all
         }
 
         for window in group.windows {
@@ -31,18 +49,17 @@ enum TabWindowGrouping {
                 continue
             }
 
+            let windowPartition = partition(for: window)
             if currentSegment.isEmpty {
                 currentSegment = [window.id]
-                currentPinnedState = window.isPinned
+                currentPartition = windowPartition
                 continue
             }
 
-            if splitPinnedTabs,
-               let segmentPinnedState = currentPinnedState,
-               segmentPinnedState != window.isPinned {
+            if let currentPartitionValue = currentPartition, currentPartitionValue != windowPartition {
                 flushCurrentSegment()
                 currentSegment = [window.id]
-                currentPinnedState = window.isPinned
+                currentPartition = windowPartition
                 continue
             }
 
@@ -57,11 +74,13 @@ enum TabWindowGrouping {
         in group: TabGroup,
         focusedWindowID: CGWindowID?,
         splitPinnedTabs: Bool,
+        splitSuperPinnedTabs: Bool = false,
         splitOnSeparators: Bool
     ) -> [CGWindowID] {
         let allSegments = segments(
             in: group,
             splitPinnedTabs: splitPinnedTabs,
+            splitSuperPinnedTabs: splitSuperPinnedTabs,
             splitOnSeparators: splitOnSeparators
         )
         guard !allSegments.isEmpty else { return [] }

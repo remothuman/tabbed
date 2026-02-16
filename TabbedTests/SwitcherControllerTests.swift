@@ -200,6 +200,30 @@ final class SwitcherControllerTests: XCTestCase {
         XCTAssertEqual(controller.subSelectedWindowIndex, 1)
     }
 
+    func testCycleWithinGroupSplitSuperPinnedTabsUsesSuperPinnedSegmentOnly() {
+        let controller = SwitcherController()
+        var superPinnedA = makeWindow(id: 134, appName: "A")
+        var superPinnedB = makeWindow(id: 135, appName: "B")
+        let pinned = makeWindow(id: 136, appName: "C")
+        let unpinned = makeWindow(id: 137, appName: "D")
+        superPinnedA.pinState = .super
+        superPinnedB.pinState = .super
+        var mutablePinned = pinned
+        mutablePinned.isPinned = true
+        let group = TabGroup(windows: [superPinnedA, superPinnedB, mutablePinned, unpinned], frame: .zero)
+
+        let items = [SwitcherItem.group(group)]
+        controller.show(
+            items: items,
+            style: .appIcons,
+            scope: .global,
+            splitSuperPinnedTabsIntoSeparateGroup: true
+        )
+
+        controller.cycleWithinGroup()
+        XCTAssertEqual(controller.subSelectedWindowIndex, 1)
+    }
+
     func testCycleWithinGroupSplitOnSeparatorsUsesActiveSeparatorSection() {
         let controller = SwitcherController()
         let w1 = makeWindow(id: 140, appName: "A")

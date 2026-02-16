@@ -329,6 +329,39 @@ final class TabGroupTests: XCTestCase {
         XCTAssertEqual(group.pinnedCount, 2)
     }
 
+    func testSetSuperPinnedPlacesSuperpinsAtStartOfPinnedSection() {
+        var w1 = makeWindow(id: 1)
+        var w2 = makeWindow(id: 2)
+        let w3 = makeWindow(id: 3)
+        w1.pinState = .normal
+        w2.pinState = .normal
+        let group = TabGroup(windows: [w1, w2, w3], frame: .zero)
+
+        group.setSuperPinned(true, forWindowIDs: [2])
+
+        XCTAssertEqual(group.windows.map(\.id), [2, 1, 3])
+        XCTAssertEqual(group.superPinnedCount, 1)
+        XCTAssertEqual(group.pinnedCount, 2)
+        XCTAssertEqual(group.windows[0].pinState, .super)
+    }
+
+    func testSetPinnedKeepsExistingSuperpinsAheadOfNormalPins() {
+        var superPinned = makeWindow(id: 1)
+        var normalPinned = makeWindow(id: 2)
+        let unpinned = makeWindow(id: 3)
+        superPinned.pinState = .super
+        normalPinned.pinState = .normal
+        let group = TabGroup(windows: [normalPinned, superPinned, unpinned], frame: .zero)
+
+        group.setPinned(true, forWindowIDs: [3])
+
+        XCTAssertEqual(group.windows.map(\.id), [1, 2, 3])
+        XCTAssertEqual(group.superPinnedCount, 1)
+        XCTAssertEqual(group.windows[0].pinState, .super)
+        XCTAssertEqual(group.windows[1].pinState, .normal)
+        XCTAssertEqual(group.windows[2].pinState, .normal)
+    }
+
     func testRemoveWindowsWithIDs() {
         let group = TabGroup(windows: [makeWindow(id: 1), makeWindow(id: 2), makeWindow(id: 3), makeWindow(id: 4)], frame: .zero)
         group.switchTo(index: 2) // Window 3 is active
@@ -537,6 +570,23 @@ final class TabGroupTests: XCTestCase {
         XCTAssertEqual(layout.widths[2], layout.widths[0], accuracy: 0.01)
     }
 
+    func testSuperPinnedSectionWidthUsesLeadingSuperPinnedTabs() {
+        var superPinnedA = makeWindow(id: 1)
+        var superPinnedB = makeWindow(id: 2)
+        var normalPinned = makeWindow(id: 3)
+        let unpinned = makeWindow(id: 4)
+        superPinnedA.pinState = .super
+        superPinnedB.pinState = .super
+        normalPinned.pinState = .normal
+        let tabs = [superPinnedA, superPinnedB, normalPinned, unpinned]
+        let widths: [CGFloat] = [30, 30, 40, 90]
+
+        let sectionWidth = TabBarView.superPinnedSectionWidth(tabs: tabs, tabWidths: widths)
+        let expected = widths[0] + widths[1] + TabBarView.tabSpacing
+
+        XCTAssertEqual(sectionWidth, expected, accuracy: 0.01)
+    }
+
     func testTabGapAddsExtraSpacingAtPinnedBoundary() {
         var pinned = makeWindow(id: 1)
         pinned.isPinned = true
@@ -555,8 +605,11 @@ final class TabGroupTests: XCTestCase {
         pinned.isPinned = true
         let tabs = [pinned, makeWindow(id: 2), makeWindow(id: 3)]
         let widths: [CGFloat] = [40, 100, 100]
+        let expected = widths.reduce(0, +)
+            + TabBarView.tabSpacing
+            + (TabBarView.tabSpacing + TabBarView.pinnedSectionSpacing)
 
-        XCTAssertEqual(TabBarView.tabContentWidth(tabWidths: widths, tabs: tabs), 250, accuracy: 0.01)
+        XCTAssertEqual(TabBarView.tabContentWidth(tabWidths: widths, tabs: tabs), expected, accuracy: 0.01)
     }
 
     func testInsertionGeometryWithTabsAccountsForPinnedBoundaryGap() {
@@ -564,9 +617,12 @@ final class TabGroupTests: XCTestCase {
         pinned.isPinned = true
         let tabs = [pinned, makeWindow(id: 2), makeWindow(id: 3)]
         let widths: [CGFloat] = [40, 100, 100]
+        let expectedOffset = widths[0] + (TabBarView.tabSpacing + TabBarView.pinnedSectionSpacing) + widths[1]
+        let unpinnedStart = widths[0] + (TabBarView.tabSpacing + TabBarView.pinnedSectionSpacing)
+        let unpinnedMidpoint = unpinnedStart + widths[1] / 2
 
-        XCTAssertEqual(TabBarView.insertionOffsetX(for: 2, tabWidths: widths, tabs: tabs), 149, accuracy: 0.01)
-        XCTAssertEqual(TabBarView.insertionIndexForPoint(localTabX: 95, tabWidths: widths, tabs: tabs), 1)
+        XCTAssertEqual(TabBarView.insertionOffsetX(for: 2, tabWidths: widths, tabs: tabs), expectedOffset, accuracy: 0.01)
+        XCTAssertEqual(TabBarView.insertionIndexForPoint(localTabX: unpinnedMidpoint - 0.5, tabWidths: widths, tabs: tabs), 1)
     }
 
     func testInsertionIndexForPointUsesPinnedGeometry() {

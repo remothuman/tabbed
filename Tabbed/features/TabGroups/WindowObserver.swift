@@ -16,6 +16,8 @@ class WindowObserver {
     /// kAXUIElementDestroyedNotification when the element may be invalid.
     /// Key is the CFHash of the AXUIElement.
     private var elementToWindowID: [CFHashCode: CGWindowID] = [:]
+    /// Real windows currently registered for AX notifications.
+    private var observedWindowIDs: Set<CGWindowID> = []
 
     var onWindowMoved: ((CGWindowID) -> Void)?
     var onWindowResized: ((CGWindowID) -> Void)?
@@ -23,7 +25,14 @@ class WindowObserver {
     var onWindowDestroyed: ((CGWindowID) -> Void)?
     var onTitleChanged: ((CGWindowID) -> Void)?
 
+    func isObserving(windowID: CGWindowID) -> Bool {
+        observedWindowIDs.contains(windowID)
+    }
+
     func observe(window: WindowInfo) {
+        guard !window.isSeparator else { return }
+        guard !observedWindowIDs.contains(window.id) else { return }
+
         let pid = window.ownerPID
 
         if observers[pid] == nil {
@@ -48,6 +57,7 @@ class WindowObserver {
         }
 
         guard let observer = observers[pid] else { return }
+        observedWindowIDs.insert(window.id)
         let context = Unmanaged.passUnretained(self).toOpaque()
 
         let notifications = [
@@ -74,6 +84,9 @@ class WindowObserver {
     }
 
     func stopObserving(window: WindowInfo) {
+        guard !window.isSeparator else { return }
+        guard observedWindowIDs.remove(window.id) != nil else { return }
+
         let pid = window.ownerPID
         guard let observer = observers[pid] else { return }
 
@@ -113,7 +126,9 @@ class WindowObserver {
     /// so we only do bookkeeping (no AXObserverRemoveNotification calls,
     /// since the system auto-cleans notifications for destroyed elements).
     func handleDestroyedWindow(pid: pid_t, elementHash: CFHashCode) {
-        elementToWindowID.removeValue(forKey: elementHash)
+        if let windowID = elementToWindowID.removeValue(forKey: elementHash) {
+            observedWindowIDs.remove(windowID)
+        }
         windowCountPerPID[pid, default: 0] -= 1
 
         if windowCountPerPID[pid, default: 0] <= 0 {
@@ -137,6 +152,7 @@ class WindowObserver {
         observers.removeAll()
         windowCountPerPID.removeAll()
         elementToWindowID.removeAll()
+        observedWindowIDs.removeAll()
     }
 
     private func handleNotification(element: AXUIElement, notification: String) {

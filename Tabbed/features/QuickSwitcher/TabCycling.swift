@@ -20,6 +20,7 @@ extension AppDelegate {
             in: group,
             focusedWindowID: group.activeWindow?.id,
             splitPinnedTabs: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSuperPinnedTabs: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
             splitOnSeparators: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         guard groupedWindowIDs.count > 1 else { return }
@@ -72,6 +73,7 @@ extension AppDelegate {
             style: switcherConfig.tabCycleStyle,
             scope: .withinGroup,
             splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
+            splitSuperPinnedTabsIntoSeparateGroup: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
             splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         if reverse { switcherController.retreat() } else { switcherController.advance() }

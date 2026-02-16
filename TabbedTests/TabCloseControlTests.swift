@@ -8,7 +8,8 @@ final class TabCloseControlTests: XCTestCase {
                 at: 0,
                 activeIndex: 0,
                 mode: .xmarkOnAllTabs,
-                isShiftPressed: false
+                isShiftPressed: false,
+                isShared: false
             ),
             .close
         )
@@ -20,7 +21,8 @@ final class TabCloseControlTests: XCTestCase {
                 at: 1,
                 activeIndex: 1,
                 mode: .minusOnCurrentTab,
-                isShiftPressed: false
+                isShiftPressed: false,
+                isShared: false
             ),
             .release
         )
@@ -29,7 +31,8 @@ final class TabCloseControlTests: XCTestCase {
                 at: 0,
                 activeIndex: 1,
                 mode: .minusOnCurrentTab,
-                isShiftPressed: false
+                isShiftPressed: false,
+                isShared: false
             ),
             .close
         )
@@ -41,7 +44,8 @@ final class TabCloseControlTests: XCTestCase {
                 at: 2,
                 activeIndex: 0,
                 mode: .minusOnAllTabs,
-                isShiftPressed: false
+                isShiftPressed: false,
+                isShared: false
             ),
             .release
         )
@@ -53,7 +57,8 @@ final class TabCloseControlTests: XCTestCase {
                 at: 0,
                 activeIndex: 0,
                 mode: .xmarkOnAllTabs,
-                isShiftPressed: true
+                isShiftPressed: true,
+                isShared: false
             ),
             .release
         )
@@ -62,7 +67,31 @@ final class TabCloseControlTests: XCTestCase {
                 at: 0,
                 activeIndex: 0,
                 mode: .minusOnAllTabs,
-                isShiftPressed: true
+                isShiftPressed: true,
+                isShared: false
+            ),
+            .close
+        )
+    }
+
+    func testSharedWindowUsesReleaseByDefaultAndCloseOnShift() {
+        XCTAssertEqual(
+            TabBarView.tabHoverControl(
+                at: 0,
+                activeIndex: 0,
+                mode: .xmarkOnAllTabs,
+                isShiftPressed: false,
+                isShared: true
+            ),
+            .release
+        )
+        XCTAssertEqual(
+            TabBarView.tabHoverControl(
+                at: 0,
+                activeIndex: 0,
+                mode: .minusOnAllTabs,
+                isShiftPressed: true,
+                isShared: true
             ),
             .close
         )

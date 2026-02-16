@@ -10,7 +10,7 @@ enum SettingsTab: Int {
         case .launcher:  return 420
         case .tabBar:    return 360
         case .shortcuts: return 520
-        case .switcher:  return 510
+        case .switcher:  return 550
         }
     }
 }
@@ -97,6 +97,9 @@ struct SettingsView: View {
             onSwitcherConfigChanged(switcherConfig)
         }
         .onChange(of: switcherConfig.splitPinnedTabsIntoSeparateGroup) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup) { _ in
             onSwitcherConfigChanged(switcherConfig)
         }
         .onChange(of: switcherConfig.splitSeparatedTabsIntoSeparateGroups) { _ in
@@ -714,6 +717,19 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Treat Pinned Tabs as Separate Group")
                     Text("Cycle pinned tabs separately from non-pinned tabs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+
+            Toggle(isOn: $switcherConfig.splitSuperPinnedTabsIntoSeparateGroup) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Treat Superpinned Tabs as Separate Group")
+                    Text("Split superpinned tabs into their own cycle/switcher group.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -12,6 +12,7 @@ class SwitcherController {
     private var panel: SwitcherPanel?
     private var session = SwitcherSession()
     private var splitPinnedTabsIntoSeparateGroup = false
+    private var splitSuperPinnedTabsIntoSeparateGroup = false
     private var splitSeparatedTabsIntoSeparateGroups = false
     var scope: Scope { session.scope }
 
@@ -46,11 +47,13 @@ class SwitcherController {
         scope: Scope,
         namedGroupLabelMode: NamedGroupLabelMode = .groupAppWindow,
         splitPinnedTabsIntoSeparateGroup: Bool = false,
+        splitSuperPinnedTabsIntoSeparateGroup: Bool = false,
         splitSeparatedTabsIntoSeparateGroups: Bool = false
     ) {
         guard !items.isEmpty else { return }
 
         self.splitPinnedTabsIntoSeparateGroup = splitPinnedTabsIntoSeparateGroup
+        self.splitSuperPinnedTabsIntoSeparateGroup = splitSuperPinnedTabsIntoSeparateGroup
         self.splitSeparatedTabsIntoSeparateGroups = splitSeparatedTabsIntoSeparateGroups
         session.start(items: items, style: style, scope: scope, namedGroupLabelMode: namedGroupLabelMode)
 
@@ -262,6 +265,7 @@ class SwitcherController {
                 in: group,
                 focusedWindowID: focusedWindowID,
                 splitPinnedTabs: splitPinnedTabsIntoSeparateGroup,
+                splitSuperPinnedTabs: splitSuperPinnedTabsIntoSeparateGroup,
                 splitOnSeparators: splitSeparatedTabsIntoSeparateGroups
             )
         }
@@ -313,6 +317,7 @@ class SwitcherController {
         panel = nil
         session.clear()
         splitPinnedTabsIntoSeparateGroup = false
+        splitSuperPinnedTabsIntoSeparateGroup = false
         splitSeparatedTabsIntoSeparateGroups = false
     }
 }

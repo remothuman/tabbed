@@ -1,6 +1,10 @@
 
 - do a pass on default settings and clean install
 
+- same app focus issues autogobller
+
+- random beach ball sometimes
+
 - hyper t autojoin should work 
 
 - if window confirms delete wait until that happens to remove from tab
@@ -23,6 +27,8 @@
 - settings should show up in control tab (investigate?)
 - newly opened windows / launched apps sometimes end up at bottom of MRU instead of top / correct pos, generally sometimes takes a few switches before mru order is correct
 
+
+- can try recreating based on commits only, maybe will be clean codebase
 
 - fullscreen
 

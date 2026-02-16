@@ -123,6 +123,15 @@ final class SwitcherItemTests: XCTestCase {
         XCTAssertEqual(segmented.namedGroup?.displayName, "Workspace")
     }
 
+    func testNamedGroupDisplayNameUsesPinnedForSuperPinnedSegment() {
+        var superPinned = makeWindow(id: 607, title: "Pinned", appName: "Finder")
+        superPinned.pinState = .super
+        let group = TabGroup(windows: [superPinned], frame: .zero, name: "Workspace")
+        let segmented = SwitcherItem.groupSegment(group, windowIDs: [superPinned.id])
+
+        XCTAssertEqual(segmented.namedGroupDisplayName, "Pinned")
+    }
+
     func testGroupSegmentUsesOnlySegmentWindows() {
         let w1 = makeWindow(id: 610, title: "Pinned", appName: "Finder")
         let w2 = makeWindow(id: 611, title: "Main", appName: "Finder")

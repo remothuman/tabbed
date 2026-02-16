@@ -24,6 +24,7 @@ final class SwitcherConfigTests: XCTestCase {
         let config = SwitcherConfig()
         XCTAssertEqual(config.namedGroupLabelMode, .groupAppWindow)
         XCTAssertFalse(config.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(config.splitSuperPinnedTabsIntoSeparateGroup)
         XCTAssertFalse(config.splitSeparatedTabsIntoSeparateGroups)
     }
 
@@ -34,6 +35,7 @@ final class SwitcherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.tabCycleStyle, .titles)
         XCTAssertEqual(decoded.namedGroupLabelMode, .groupAppWindow)
         XCTAssertFalse(decoded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.splitSuperPinnedTabsIntoSeparateGroup)
         XCTAssertFalse(decoded.splitSeparatedTabsIntoSeparateGroups)
     }
 
@@ -44,6 +46,7 @@ final class SwitcherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.tabCycleStyle, .titles)
         XCTAssertEqual(decoded.namedGroupLabelMode, .groupAppWindow)
         XCTAssertFalse(decoded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.splitSuperPinnedTabsIntoSeparateGroup)
         XCTAssertFalse(decoded.splitSeparatedTabsIntoSeparateGroups)
     }
 
@@ -51,12 +54,14 @@ final class SwitcherConfigTests: XCTestCase {
         var config = SwitcherConfig()
         config.namedGroupLabelMode = .groupNameOnly
         config.splitPinnedTabsIntoSeparateGroup = true
+        config.splitSuperPinnedTabsIntoSeparateGroup = true
         config.splitSeparatedTabsIntoSeparateGroups = true
         config.save()
 
         let loaded = SwitcherConfig.load()
         XCTAssertEqual(loaded.namedGroupLabelMode, .groupNameOnly)
         XCTAssertTrue(loaded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertTrue(loaded.splitSuperPinnedTabsIntoSeparateGroup)
         XCTAssertTrue(loaded.splitSeparatedTabsIntoSeparateGroups)
     }
 }

@@ -28,17 +28,20 @@ struct TabBarView: View {
     var onReleaseTabs: (Set<CGWindowID>) -> Void
     var onMoveToNewGroup: (Set<CGWindowID>) -> Void
     var onCloseTabs: (Set<CGWindowID>) -> Void
+    var onSetPinned: (Set<CGWindowID>, Bool) -> Void
+    var onSetSuperPinned: (Set<CGWindowID>, Bool) -> Void
     var onSelectionChanged: (Set<CGWindowID>) -> Void
     var onCrossPanelDrop: (Set<CGWindowID>, UUID, Int) -> Void
     var onDragOverPanels: (NSPoint) -> CrossPanelDropTarget?
     var onDragEnded: () -> Void
+    var isWindowShared: (CGWindowID) -> Bool
     var onTooltipHover: ((_ title: String?, _ tabLeadingX: CGFloat) -> Void)?
 
     static let addButtonWidth: CGFloat = 20
     static let maxCompactTabWidth: CGFloat = 240
     static let dragHandleWidth: CGFloat = 16
     static let tabSpacing: CGFloat = 1
-    static let pinnedSectionSpacing: CGFloat = 8
+    static let pinnedSectionSpacing: CGFloat = 4
     static let pinnedTabIdealWidth: CGFloat = 40
     static let separatorWidthMultiplier: CGFloat = 0.5
     static let groupNameMaxWidth: CGFloat = 180
@@ -87,6 +90,18 @@ struct TabBarView: View {
         enabled: Bool
     ) -> Bool {
         enabled && counterGroupIDs.count >= 2 && counterGroupIDs.contains(currentGroupID)
+    }
+
+    static func supportsSuperpin(
+        counterGroupIDs: [UUID],
+        currentGroupID: UUID,
+        enabled: Bool
+    ) -> Bool {
+        shouldShowMaximizedGroupCounters(
+            counterGroupIDs: counterGroupIDs,
+            currentGroupID: currentGroupID,
+            enabled: enabled
+        )
     }
 
     private static func measuredGroupCounterItemWidth(number: Int) -> CGFloat {
@@ -215,6 +230,14 @@ struct TabBarView: View {
             return unpinnedUnit * (tab.isSeparator ? separatorWidthMultiplier : 1)
         }
         return TabWidthLayout(widths: widths, pinnedWidth: pinnedWidth, unpinnedUnitWidth: unpinnedUnit)
+    }
+
+    static func superPinnedSectionWidth(tabs: [WindowInfo], tabWidths: [CGFloat]) -> CGFloat {
+        let superPinnedCount = tabs.filter { $0.pinState == .super && !$0.isSeparator }.count
+        guard superPinnedCount > 0 else { return 0 }
+        let clampedCount = min(superPinnedCount, tabWidths.count)
+        let spacing = CGFloat(max(0, clampedCount - 1)) * tabSpacing
+        return tabWidths.prefix(clampedCount).reduce(0, +) + spacing
     }
 
     static func tabWidth(
@@ -350,8 +373,12 @@ struct TabBarView: View {
         at index: Int,
         activeIndex: Int,
         mode: TabCloseButtonMode,
-        isShiftPressed: Bool
+        isShiftPressed: Bool,
+        isShared: Bool
     ) -> TabHoverControl {
+        if isShared {
+            return isShiftPressed ? .close : .release
+        }
         let base: TabHoverControl
         switch mode {
         case .xmarkOnAllTabs:
@@ -413,6 +440,7 @@ struct TabBarView: View {
         GeometryReader { geo in
             let tabCount = group.windows.count
             let pinnedCount = group.pinnedCount
+            let superPinnedCount = group.superPinnedCount
             let isCompact = tabBarConfig.style == .compact
             let counterGroupIDs = group.maximizedGroupCounterIDs
             let counterItemWidths = Self.groupCounterItemWidths(count: counterGroupIDs.count)
@@ -440,12 +468,17 @@ struct TabBarView: View {
                 tabs: group.windows,
                 style: tabBarConfig.style
             )
-            let pinnedTabWidth = widthLayout.pinnedWidth
-            let unpinnedTabWidth = widthLayout.unpinnedUnitWidth
+            let superPinnedSectionWidth = Self.superPinnedSectionWidth(
+                tabs: group.windows,
+                tabWidths: widthLayout.widths
+            )
+            let mainTabs = Array(group.windows.dropFirst(superPinnedCount))
+            let mainTabWidths = Array(widthLayout.widths.dropFirst(superPinnedCount))
+            let normalPinnedCount = max(0, pinnedCount - superPinnedCount)
             let dragTabStep = dragStep(tabWidths: widthLayout.widths)
             let targetIndex = computeTargetIndex(tabWidths: widthLayout.widths, fallbackStep: dragTabStep)
             let showPinDropZone = shouldShowPinDropZone(targetIndex: targetIndex)
-            let tabContentStartX = leadingPad + groupCounterWidth + handleWidth + groupNameWidth
+            let tabContentStartX = leadingPad + groupCounterWidth + handleWidth + superPinnedSectionWidth + groupNameWidth
 
             ZStack(alignment: .leading) {
                 HStack(spacing: Self.tabSpacing) {
@@ -459,8 +492,67 @@ struct TabBarView: View {
                     if tabBarConfig.showDragHandle {
                         dragHandle
                     }
+                    ForEach(Array(group.windows.enumerated().prefix(superPinnedCount)), id: \.element.id) { index, window in
+                        let isDragging = draggingIDs.contains(window.id)
+                        let tabWidth = widthLayout.widths[safe: index] ?? 0
+                        tabItem(for: window, at: index, tabWidth: tabWidth)
+                            .offset(x: isDragging
+                                ? dragTranslation
+                                : shiftOffset(for: index, targetIndex: targetIndex, tabStep: dragTabStep))
+                            .offset(x: snapIDs.contains(window.id) ? snapOffset : 0)
+                            .zIndex(isDragging ? 1 : 0)
+                            .scaleEffect(isDragging ? 1.03 : 1.0, anchor: .center)
+                            .shadow(
+                                color: isDragging ? .black.opacity(0.3) : .clear,
+                                radius: isDragging ? 6 : 0,
+                                y: isDragging ? 1 : 0
+                            )
+                            .animation(isDragging ? nil : .easeOut(duration: 0.15), value: targetIndex)
+                            .transition(Self.tabExpandTransition)
+                            .gesture(
+                                DragGesture(minimumDistance: 3)
+                                    .onChanged { value in
+                                        if draggingID == nil {
+                                            draggingID = window.id
+                                            dragStartIndex = index
+                                            snapIDs = []
+                                            snapOffset = 0
+                                            if selectedIDs.contains(window.id) {
+                                                draggingIDs = selectedIDs
+                                            } else {
+                                                selectedIDs = []
+                                                draggingIDs = [window.id]
+                                            }
+                                        }
+                                        dragTranslation = value.translation.width
+                                        if abs(value.translation.height) > 15 {
+                                            draggedOffBar = true
+                                        }
+                                        if draggedOffBar {
+                                            currentDropTarget = onDragOverPanels(NSEvent.mouseLocation)
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        if draggedOffBar, let target = currentDropTarget {
+                                            let ids = Set(draggingIDs.filter { id in
+                                                guard let window = group.windows.first(where: { $0.id == id }) else { return false }
+                                                return !window.isSeparator
+                                            })
+                                            resetDragState()
+                                            selectedIDs = []
+                                            if !ids.isEmpty {
+                                                onCrossPanelDrop(ids, target.groupID, target.insertionIndex)
+                                            }
+                                        } else if draggedOffBar {
+                                            handleDragDetach()
+                                        } else {
+                                            handleDragEnded(tabStep: dragTabStep, tabWidths: widthLayout.widths)
+                                        }
+                                    }
+                            )
+                    }
                     groupNameControl(groupNameWidth: groupNameWidth)
-                    ForEach(Array(group.windows.enumerated()), id: \.element.id) { index, window in
+                    ForEach(Array(group.windows.enumerated().dropFirst(superPinnedCount)), id: \.element.id) { index, window in
                         let isDragging = draggingIDs.contains(window.id)
                         let tabWidth = widthLayout.widths[safe: index] ?? 0
                         tabItem(for: window, at: index, tabWidth: tabWidth)
@@ -545,7 +637,7 @@ struct TabBarView: View {
                                 .stroke(Color.accentColor.opacity(0.65), style: StrokeStyle(lineWidth: 1, dash: [3, 2]))
                         )
                         .frame(
-                            width: max(8, Self.tabContentWidth(tabWidths: Array(widthLayout.widths.prefix(pinnedCount)))),
+                            width: max(8, Self.tabContentWidth(tabWidths: Array(mainTabWidths.prefix(normalPinnedCount)))),
                             height: 20
                         )
                         .offset(x: tabContentStartX)
@@ -555,10 +647,11 @@ struct TabBarView: View {
 
                 // Drop indicator line when another group is dragging tabs over this bar
                 if let dropIndex = group.dropIndicatorIndex {
+                    let localDropIndex = max(0, min(dropIndex - superPinnedCount, mainTabWidths.count))
                     let xPos = tabContentStartX + Self.insertionOffsetX(
-                        for: dropIndex,
-                        tabWidths: widthLayout.widths,
-                        tabs: group.windows
+                        for: localDropIndex,
+                        tabWidths: mainTabWidths,
+                        tabs: mainTabs
                     )
                     RoundedRectangle(cornerRadius: 1)
                         .fill(Color.accentColor)
@@ -1000,11 +1093,16 @@ struct TabBarView: View {
     }
 
     private func hoverControl(forTabAt index: Int) -> TabHoverControl {
-        Self.tabHoverControl(
+        let isShared: Bool = {
+            guard let window = group.windows[safe: index], !window.isSeparator else { return false }
+            return isWindowShared(window.id)
+        }()
+        return Self.tabHoverControl(
             at: index,
             activeIndex: group.activeIndex,
             mode: tabBarConfig.closeButtonMode,
-            isShiftPressed: currentShiftPressed()
+            isShiftPressed: currentShiftPressed(),
+            isShared: isShared
         )
     }
 
@@ -1173,6 +1271,12 @@ struct TabBarView: View {
                 let targets = contextTargets(for: window)
                 let targetWindows = group.windows.filter { targets.contains($0.id) }
                 let allPinned = !targetWindows.isEmpty && targetWindows.allSatisfy(\.isPinned)
+                let allSuperPinned = !targetWindows.isEmpty && targetWindows.allSatisfy(\.isSuperPinned)
+                let canSuperpin = Self.supportsSuperpin(
+                    counterGroupIDs: group.maximizedGroupCounterIDs,
+                    currentGroupID: group.id,
+                    enabled: tabBarConfig.showMaximizedGroupCounters
+                )
                 Button("New Tab to the Right") {
                     onAddWindowAfterTab(index)
                 }
@@ -1184,9 +1288,19 @@ struct TabBarView: View {
                     beginTabNameEditing(for: window, fromContextMenu: true)
                 }
                 Divider()
+                if canSuperpin {
+                    Button(
+                        allSuperPinned
+                            ? (targets.count == 1 ? "Remove Superpin" : "Remove Superpins")
+                            : (targets.count == 1 ? "Superpin Tab" : "Superpin Tabs")
+                    ) {
+                        selectedIDs = []
+                        onSetSuperPinned(targets, !allSuperPinned)
+                    }
+                }
                 Button(allPinned ? (targets.count == 1 ? "Unpin Tab" : "Unpin Tabs") : (targets.count == 1 ? "Pin Tab" : "Pin Tabs")) {
                     selectedIDs = []
-                    group.setPinned(!allPinned, forWindowIDs: targets)
+                    onSetPinned(targets, !allPinned)
                 }
                 Divider()
                 Button("Release from Group") {

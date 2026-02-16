@@ -6,6 +6,13 @@ func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: inout CGWindowID)
 
 enum AccessibilityHelper {
 
+    /// Timeout for AX calls to avoid blocking the main thread when target apps are slow.
+    private static let axMessagingTimeout: Float = 0.5
+
+    private static func setMessagingTimeout(_ element: AXUIElement) {
+        AXUIElementSetMessagingTimeout(element, axMessagingTimeout)
+    }
+
     static func checkPermission() -> Bool {
         return AXIsProcessTrusted()
     }
@@ -43,6 +50,7 @@ enum AccessibilityHelper {
 
     static func windowElements(for pid: pid_t) -> [AXUIElement] {
         let app = appElement(for: pid)
+        setMessagingTimeout(app)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
         guard result == .success, let windows = value as? [AXUIElement] else { return [] }
@@ -50,6 +58,7 @@ enum AccessibilityHelper {
     }
 
     static func windowID(for element: AXUIElement) -> CGWindowID? {
+        setMessagingTimeout(element)
         var windowID: CGWindowID = 0
         let result = _AXUIElementGetWindow(element, &windowID)
         guard result == .success else { return nil }
@@ -59,6 +68,7 @@ enum AccessibilityHelper {
     // MARK: - Read Attributes
 
     static func getPosition(of element: AXUIElement) -> CGPoint? {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &value)
         guard result == .success, let value else { return nil }
@@ -70,6 +80,7 @@ enum AccessibilityHelper {
     }
 
     static func getSize(of element: AXUIElement) -> CGSize? {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &value)
         guard result == .success, let value else { return nil }
@@ -87,6 +98,7 @@ enum AccessibilityHelper {
     }
 
     static func getTitle(of element: AXUIElement) -> String? {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
         guard result == .success, let title = value as? String else { return nil }
@@ -94,6 +106,7 @@ enum AccessibilityHelper {
     }
 
     static func getRole(of element: AXUIElement) -> String? {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &value)
         guard result == .success, let role = value as? String else { return nil }
@@ -101,6 +114,7 @@ enum AccessibilityHelper {
     }
 
     static func getSubrole(of element: AXUIElement) -> String? {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &value)
         guard result == .success, let subrole = value as? String else { return nil }
@@ -108,6 +122,7 @@ enum AccessibilityHelper {
     }
 
     static func isMinimized(_ element: AXUIElement) -> Bool {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXMinimizedAttribute as CFString, &value)
         guard result == .success, let boolValue = value as? Bool else { return false }
@@ -115,6 +130,7 @@ enum AccessibilityHelper {
     }
 
     static func isFullScreen(_ element: AXUIElement) -> Bool {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, "AXFullScreen" as CFString, &value)
         guard result == .success, let boolValue = value as? Bool else { return false }
@@ -122,6 +138,7 @@ enum AccessibilityHelper {
     }
 
     static func isModal(_ element: AXUIElement) -> Bool {
+        setMessagingTimeout(element)
         var value: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, "AXModal" as CFString, &value)
         guard result == .success, let boolValue = value as? Bool else { return false }
@@ -130,6 +147,7 @@ enum AccessibilityHelper {
 
     static func focusedWindowID(for pid: pid_t) -> CGWindowID? {
         let app = appElement(for: pid)
+        setMessagingTimeout(app)
         var focusedValue: AnyObject?
         let result = AXUIElementCopyAttributeValue(
             app,
@@ -146,6 +164,7 @@ enum AccessibilityHelper {
 
     @discardableResult
     static func setPosition(of element: AXUIElement, to point: CGPoint) -> AXError {
+        setMessagingTimeout(element)
         var mutablePoint = point
         guard let value = AXValueCreate(.cgPoint, &mutablePoint) else { return .failure }
         return AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
@@ -153,6 +172,7 @@ enum AccessibilityHelper {
 
     @discardableResult
     static func setSize(of element: AXUIElement, to size: CGSize) -> AXError {
+        setMessagingTimeout(element)
         var mutableSize = size
         guard let value = AXValueCreate(.cgSize, &mutableSize) else { return .failure }
         return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
@@ -168,7 +188,8 @@ enum AccessibilityHelper {
 
     @discardableResult
     static func setMain(_ element: AXUIElement, to value: Bool = true) -> AXError {
-        AXUIElementSetAttributeValue(
+        setMessagingTimeout(element)
+        return AXUIElementSetAttributeValue(
             element,
             kAXMainAttribute as CFString,
             value ? kCFBooleanTrue : kCFBooleanFalse
@@ -177,8 +198,10 @@ enum AccessibilityHelper {
 
     @discardableResult
     static func setFocusedWindow(_ element: AXUIElement, appPID: pid_t) -> AXError {
-        AXUIElementSetAttributeValue(
-            appElement(for: appPID),
+        let app = appElement(for: appPID)
+        setMessagingTimeout(app)
+        return AXUIElementSetAttributeValue(
+            app,
             kAXFocusedWindowAttribute as CFString,
             element
         )
@@ -204,12 +227,14 @@ enum AccessibilityHelper {
 
     @discardableResult
     static func raise(_ element: AXUIElement) -> AXError {
+        setMessagingTimeout(element)
         return AXUIElementPerformAction(element, kAXRaiseAction as CFString)
     }
 
     /// Press the close button on a window (equivalent to clicking the red traffic light).
     @discardableResult
     static func closeWindow(_ element: AXUIElement) -> Bool {
+        setMessagingTimeout(element)
         var buttonRef: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &buttonRef)
         guard result == .success, let button = buttonRef else { return false }

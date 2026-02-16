@@ -7,9 +7,13 @@ struct WindowSnapshot: Codable {
     let bundleID: String
     let title: String
     let appName: String
-    let isPinned: Bool
+    let pinState: WindowPinState
     let customTabName: String?
     let isSeparator: Bool
+
+    var isPinned: Bool {
+        pinState != .none
+    }
 
     init(
         windowID: CGWindowID,
@@ -17,6 +21,7 @@ struct WindowSnapshot: Codable {
         title: String,
         appName: String,
         isPinned: Bool,
+        pinState: WindowPinState? = nil,
         customTabName: String? = nil,
         isSeparator: Bool = false
     ) {
@@ -24,7 +29,7 @@ struct WindowSnapshot: Codable {
         self.bundleID = bundleID
         self.title = title
         self.appName = appName
-        self.isPinned = isPinned
+        self.pinState = pinState ?? (isPinned ? .normal : .none)
         self.customTabName = customTabName
         self.isSeparator = isSeparator
     }
@@ -34,6 +39,7 @@ struct WindowSnapshot: Codable {
         case bundleID
         case title
         case appName
+        case pinState
         case isPinned
         case customTabName
         case isSeparator
@@ -45,9 +51,26 @@ struct WindowSnapshot: Codable {
         bundleID = try container.decode(String.self, forKey: .bundleID)
         title = try container.decode(String.self, forKey: .title)
         appName = try container.decode(String.self, forKey: .appName)
-        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        if let decodedPinState = try container.decodeIfPresent(WindowPinState.self, forKey: .pinState) {
+            pinState = decodedPinState
+        } else {
+            let legacyPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+            pinState = legacyPinned ? .normal : .none
+        }
         customTabName = try container.decodeIfPresent(String.self, forKey: .customTabName)
         isSeparator = try container.decodeIfPresent(Bool.self, forKey: .isSeparator) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(windowID, forKey: .windowID)
+        try container.encode(bundleID, forKey: .bundleID)
+        try container.encode(title, forKey: .title)
+        try container.encode(appName, forKey: .appName)
+        try container.encode(pinState, forKey: .pinState)
+        try container.encode(pinState != .none, forKey: .isPinned)
+        try container.encodeIfPresent(customTabName, forKey: .customTabName)
+        try container.encode(isSeparator, forKey: .isSeparator)
     }
 }
 

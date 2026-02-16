@@ -82,10 +82,13 @@ class TabBarPanel: NSPanel {
         onReleaseTabs: @escaping (Set<CGWindowID>) -> Void,
         onMoveToNewGroup: @escaping (Set<CGWindowID>) -> Void,
         onCloseTabs: @escaping (Set<CGWindowID>) -> Void,
+        onSetPinned: @escaping (Set<CGWindowID>, Bool) -> Void,
+        onSetSuperPinned: @escaping (Set<CGWindowID>, Bool) -> Void,
         onSelectionChanged: @escaping (Set<CGWindowID>) -> Void,
         onCrossPanelDrop: @escaping (Set<CGWindowID>, UUID, Int) -> Void,
         onDragOverPanels: @escaping (NSPoint) -> CrossPanelDropTarget?,
-        onDragEnded: @escaping () -> Void
+        onDragEnded: @escaping () -> Void,
+        isWindowShared: @escaping (CGWindowID) -> Bool
     ) {
         self.group = groupRef
         self.tabBarConfig = tabBarConfigRef
@@ -108,10 +111,13 @@ class TabBarPanel: NSPanel {
             onReleaseTabs: onReleaseTabs,
             onMoveToNewGroup: onMoveToNewGroup,
             onCloseTabs: onCloseTabs,
+            onSetPinned: onSetPinned,
+            onSetSuperPinned: onSetSuperPinned,
             onSelectionChanged: onSelectionChanged,
             onCrossPanelDrop: onCrossPanelDrop,
             onDragOverPanels: onDragOverPanels,
             onDragEnded: onDragEnded,
+            isWindowShared: isWindowShared,
             onTooltipHover: { [weak self] title, tabLeadingX in
                 self?.handleTooltipHover(title: title, tabLeadingX: tabLeadingX)
             }
@@ -323,6 +329,8 @@ class TabBarPanel: NSPanel {
             enabled: countersEnabled,
             showDragHandle: showHandle
         )
+        let tabs = group?.windows ?? []
+        let superPinnedCount = group?.superPinnedCount ?? 0
 
         // Top/bottom padding is always background
         if point.y < verticalPad || point.y > panelHeight - verticalPad {
@@ -331,14 +339,24 @@ class TabBarPanel: NSPanel {
         // Left padding + drag handle area
         let handleWidth: CGFloat = showHandle ? TabBarView.dragHandleWidth : 0
         let groupNameWidth = TabBarView.groupNameReservedWidth(for: group?.name)
+        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - groupCounterWidth - handleWidth - groupNameWidth
+        let style = tabBarConfig?.style ?? .compact
+        let layout = TabBarView.tabWidthLayout(
+            availableWidth: availableWidth,
+            tabs: tabs,
+            style: style
+        )
+        let superPinnedSectionWidth = TabBarView.superPinnedSectionWidth(tabs: tabs, tabWidths: layout.widths)
+        let mainTabs = Array(tabs.dropFirst(superPinnedCount))
+        let mainTabWidths = Array(layout.widths.dropFirst(superPinnedCount))
         let groupCounterStartX = leadingPad
         let groupCounterEndX = groupCounterStartX + groupCounterWidth
         let dragHandleStartX = groupCounterEndX
-        let groupNameStartX = dragHandleStartX + handleWidth
+        let groupNameStartX = dragHandleStartX + handleWidth + superPinnedSectionWidth
         if point.x < leadingPad {
             return true
         }
-        if point.x >= dragHandleStartX && point.x < groupNameStartX {
+        if point.x >= dragHandleStartX && point.x < dragHandleStartX + handleWidth {
             return true
         }
         // Group title zone: click/release enters inline edit, drag moves the group.
@@ -348,7 +366,8 @@ class TabBarPanel: NSPanel {
                leadingPad: leadingPad,
                groupCounterWidth: groupCounterWidth,
                handleWidth: handleWidth,
-               groupNameWidth: groupNameWidth
+               groupNameWidth: groupNameWidth,
+               superPinnedSectionWidth: superPinnedSectionWidth
            ) {
             return true
         }
@@ -358,17 +377,8 @@ class TabBarPanel: NSPanel {
         }
 
         // Calculate where tab content ends
-        let tabCount = group?.windows.count ?? 0
-        guard tabCount > 0 else { return true }
-
-        let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - groupCounterWidth - handleWidth - groupNameWidth
-        let style = tabBarConfig?.style ?? .compact
-        let layout = TabBarView.tabWidthLayout(
-            availableWidth: availableWidth,
-            tabs: group?.windows ?? [],
-            style: style
-        )
-        let tabContentWidth = TabBarView.tabContentWidth(tabWidths: layout.widths, tabs: group?.windows ?? [])
+        guard !tabs.isEmpty else { return true }
+        let tabContentWidth = TabBarView.tabContentWidth(tabWidths: mainTabWidths, tabs: mainTabs)
 
         let tabContentStartX = groupNameStartX + groupNameWidth
         let tabContentEndX = tabContentStartX + tabContentWidth
@@ -386,10 +396,11 @@ class TabBarPanel: NSPanel {
         leadingPad: CGFloat,
         groupCounterWidth: CGFloat,
         handleWidth: CGFloat,
-        groupNameWidth: CGFloat
+        groupNameWidth: CGFloat,
+        superPinnedSectionWidth: CGFloat = 0
     ) -> Bool {
         guard groupNameWidth > 0 else { return false }
-        let minX = leadingPad + groupCounterWidth + handleWidth
+        let minX = leadingPad + groupCounterWidth + handleWidth + superPinnedSectionWidth
         let maxX = minX + groupNameWidth
         return pointX >= minX && pointX <= maxX
     }
@@ -414,7 +425,6 @@ class TabBarPanel: NSPanel {
             return false
         }
 
-        let tabCount = group.windows.count
         let panelWidth = frame.width
         let panelHeight = frame.height
 
@@ -429,6 +439,8 @@ class TabBarPanel: NSPanel {
             enabled: tabBarConfig.showMaximizedGroupCounters,
             showDragHandle: showHandle
         )
+        let tabs = group.windows
+        let superPinnedCount = group.superPinnedCount
         let groupNameWidth = TabBarView.groupNameReservedWidth(for: group.name)
         let groupCounterStartX = leadingPad
         let groupCounterEndX = groupCounterStartX + groupCounterWidth
@@ -445,11 +457,14 @@ class TabBarPanel: NSPanel {
         let availableWidth = panelWidth - leadingPad - trailingPad - TabBarView.addButtonWidth - groupCounterWidth - handleWidth - groupNameWidth
         let layout = TabBarView.tabWidthLayout(
             availableWidth: availableWidth,
-            tabs: group.windows,
+            tabs: tabs,
             style: tabBarConfig.style
         )
+        let superPinnedSectionWidth = TabBarView.superPinnedSectionWidth(tabs: tabs, tabWidths: layout.widths)
+        let mainTabs = Array(tabs.dropFirst(superPinnedCount))
+        let mainTabWidths = Array(layout.widths.dropFirst(superPinnedCount))
 
-        let tabContentStartX = leadingPad + groupCounterWidth + handleWidth + groupNameWidth
+        let tabContentStartX = leadingPad + groupCounterWidth + handleWidth + superPinnedSectionWidth + groupNameWidth
 
         // Approximate the trailing control hit area as the last 22pt of each tab.
         // The actual close/confirm button is a 16×16 square with horizontal padding,
@@ -457,21 +472,21 @@ class TabBarPanel: NSPanel {
         let controlInset: CGFloat = 22
 
         var tabOriginX = tabContentStartX
-        for index in 0..<tabCount {
-            let tab = group.windows[index]
+        for index in 0..<mainTabs.count {
+            let tab = mainTabs[index]
             // Pinned tabs don't show trailing close/release controls.
             if tab.isPinned || tab.isSeparator {
-                tabOriginX += (layout.widths[safe: index] ?? 0) + TabBarView.tabGap(after: index, tabs: group.windows)
+                tabOriginX += (mainTabWidths[safe: index] ?? 0) + TabBarView.tabGap(after: index, tabs: mainTabs)
                 continue
             }
-            let tabWidth = layout.widths[safe: index] ?? 0
+            let tabWidth = mainTabWidths[safe: index] ?? 0
             let tabEndX = tabOriginX + tabWidth
             let controlStartX = max(tabOriginX, tabEndX - controlInset)
 
             if point.x >= controlStartX && point.x <= tabEndX {
                 return true
             }
-            tabOriginX += tabWidth + TabBarView.tabGap(after: index, tabs: group.windows)
+            tabOriginX += tabWidth + TabBarView.tabGap(after: index, tabs: mainTabs)
         }
 
         return false

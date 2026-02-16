@@ -88,9 +88,9 @@ struct SwitcherView: View {
 
     /// Label shown under app icons. Named groups use the group name by default.
     private func iconLabel(for item: SwitcherItem, isSelected: Bool) -> String {
-        if let group = item.namedGroup,
+        if let groupName = item.namedGroupDisplayName,
            !(isSelected && subSelectedWindowIndex != nil),
-           let groupName = group.displayName {
+           item.namedGroup != nil {
             let appName = displayAppName(for: item, isSelected: isSelected)
             let windowTitle = displayWindowTitle(for: item, isSelected: isSelected)
             return truncatedTitle(
@@ -365,11 +365,11 @@ struct SwitcherView: View {
 
     @ViewBuilder
     private func titleRowText(for item: SwitcherItem, isSelected: Bool) -> some View {
-        if let group = item.namedGroup,
+        if let groupName = item.namedGroupDisplayName,
            !(isSelected && subSelectedWindowIndex != nil),
-           group.displayName != nil {
+           item.namedGroup != nil {
             groupHeaderText(
-                groupName: group.displayName ?? "",
+                groupName: groupName,
                 appName: displayAppName(for: item, isSelected: isSelected),
                 windowTitle: displayWindowTitle(for: item, isSelected: isSelected)
             )
