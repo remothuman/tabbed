@@ -22,6 +22,10 @@ class TabBarPanel: NSPanel {
     weak var group: TabGroup?
     weak var tabBarConfig: TabBarConfig?
 
+    private var debugGroupID: String {
+        group?.id.uuidString ?? "nil"
+    }
+
     private var barDragStartMouse: NSPoint?
     private var barDragStartPanelOrigin: NSPoint?
     /// The mouseDown location in panel-local coordinates, used for background hit test.
@@ -167,16 +171,29 @@ class TabBarPanel: NSPanel {
 
     /// Order this panel directly above the specified window
     func orderAbove(windowID: CGWindowID) {
+        Logger.log("[PANELDBG] orderAbove group=\(debugGroupID) panel=\(windowNumber) targetWindow=\(windowID)")
         self.order(.above, relativeTo: Int(windowID))
     }
 
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        Logger.log("[PANELDBG] order mode=\(place.rawValue) group=\(debugGroupID) panel=\(windowNumber) relativeTo=\(otherWin)")
+        super.order(place, relativeTo: otherWin)
+    }
+
     func show(above windowFrame: CGRect, windowID: CGWindowID, isMaximized: Bool = false) {
+        Logger.log("[PANELDBG] show group=\(debugGroupID) panel=\(windowNumber) targetWindow=\(windowID) frame=\(windowFrame) maximized=\(isMaximized)")
         positionAbove(windowFrame: windowFrame, isMaximized: isMaximized)
         orderFront(nil)
         orderAbove(windowID: windowID)
     }
 
+    override func orderFrontRegardless() {
+        Logger.log("[PANELDBG] orderFrontRegardless group=\(debugGroupID) panel=\(windowNumber)")
+        super.orderFrontRegardless()
+    }
+
     override func orderOut(_ sender: Any?) {
+        Logger.log("[PANELDBG] orderOut group=\(debugGroupID) panel=\(windowNumber)")
         dismissTooltip()
         super.orderOut(sender)
     }

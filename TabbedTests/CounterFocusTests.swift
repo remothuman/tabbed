@@ -9,6 +9,7 @@ final class CounterFocusTests: XCTestCase {
         var lastShowMaximized: Bool?
         var orderFrontRegardlessCallCount = 0
         var orderCalls: [(mode: Int, relativeTo: Int)] = []
+        var orderOutCallCount = 0
 
         override func show(above windowFrame: CGRect, windowID: CGWindowID, isMaximized: Bool = false) {
             showCallCount += 1
@@ -23,6 +24,10 @@ final class CounterFocusTests: XCTestCase {
 
         override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
             orderCalls.append((mode: place.rawValue, relativeTo: otherWin))
+        }
+
+        override func orderOut(_ sender: Any?) {
+            orderOutCallCount += 1
         }
     }
 
@@ -87,6 +92,7 @@ final class CounterFocusTests: XCTestCase {
         app.prioritizePanelZOrderForSharedWindow(windowID: shared.id, ownerGroupID: groupB.id)
 
         XCTAssertEqual(panelB.orderFrontRegardlessCallCount, 1)
-        XCTAssertTrue(panelA.orderCalls.contains(where: { $0.mode == NSWindow.OrderingMode.below.rawValue }))
+        XCTAssertEqual(panelA.orderOutCallCount, 1)
+        XCTAssertFalse(panelA.orderCalls.contains(where: { $0.mode == NSWindow.OrderingMode.below.rawValue }))
     }
 }

@@ -4,14 +4,20 @@ import AppKit
 
 extension AppDelegate {
 
-    func beginCommitEchoSuppression(targetWindowID: CGWindowID) {
+    func beginCommitEchoSuppression(targetWindowID: CGWindowID, source: String = "unspecified") {
         pendingCommitEchoTargetWindowID = targetWindowID
         pendingCommitEchoDeadline = Date().addingTimeInterval(Self.commitEchoSuppressionTimeout)
+        pendingCommitEchoSource = source
+        Logger.log("[ECHO] begin target=\(targetWindowID) source=\(source) timeoutMs=\(Int(Self.commitEchoSuppressionTimeout * 1000))")
     }
 
     func clearCommitEchoSuppression() {
+        if let target = pendingCommitEchoTargetWindowID {
+            Logger.log("[ECHO] clear target=\(target) source=\(pendingCommitEchoSource ?? "unknown")")
+        }
         pendingCommitEchoTargetWindowID = nil
         pendingCommitEchoDeadline = nil
+        pendingCommitEchoSource = nil
     }
 
     /// Suppress post-commit focus echoes until the intended target is observed.
@@ -22,15 +28,21 @@ extension AppDelegate {
               let targetWindowID = pendingCommitEchoTargetWindowID else { return false }
 
         if Date() >= deadline {
+            Logger.log("[ECHO] expired target=\(targetWindowID) source=\(pendingCommitEchoSource ?? "unknown")")
             clearCommitEchoSuppression()
             return false
         }
 
+        let remainingMs = max(0, Int(deadline.timeIntervalSinceNow * 1000))
+
         if windowID == targetWindowID {
+            Logger.log("[ECHO] suppress target-observed window=\(windowID) source=\(pendingCommitEchoSource ?? "unknown") remainingMs=\(remainingMs)")
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.pendingCommitEchoTargetWindowID == targetWindowID else { return }
                 self.clearCommitEchoSuppression()
             }
+        } else {
+            Logger.log("[ECHO] suppress non-target window=\(windowID) target=\(targetWindowID) source=\(pendingCommitEchoSource ?? "unknown") remainingMs=\(remainingMs)")
         }
         return true
     }

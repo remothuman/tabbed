@@ -6,8 +6,10 @@ import SwiftUI
 extension AppDelegate {
 
     func focusWindow(_ window: WindowInfo) {
+        Logger.log("[FOCUSDBG] focusWindow begin window=\(window.id) pid=\(window.ownerPID) memberships=\(groupManager.membershipCount(for: window.id))")
         if let freshElement = AccessibilityHelper.raiseWindow(window),
            !groupManager.groups(for: window.id).isEmpty {
+            Logger.log("[FOCUSDBG] focusWindow refreshedElement window=\(window.id)")
             for group in groupManager.groups(for: window.id) {
                 if let idx = group.windows.firstIndex(where: { $0.id == window.id }) {
                     group.windows[idx].element = freshElement
@@ -16,18 +18,42 @@ extension AppDelegate {
         }
     }
 
-    func ownerGroup(for windowID: CGWindowID) -> TabGroup? {
+    func ownerGroup(for windowID: CGWindowID, source: String = "unknown") -> TabGroup? {
+        let membershipCount = groupManager.membershipCount(for: windowID)
+        let shouldLog = membershipCount > 1
+        let memberIDs = shouldLog
+            ? groupManager.groups(for: windowID).map(\.id.uuidString).joined(separator: ",")
+            : ""
+
         if let lastActiveGroupID,
            let lastActiveGroup = groupManager.groups.first(where: { $0.id == lastActiveGroupID }),
            lastActiveGroup.contains(windowID: windowID) {
+            if shouldLog {
+                Logger.log(
+                    "[OWNERDBG] source=\(source) window=\(windowID) memberships=\(membershipCount) resolve=lastActive group=\(lastActiveGroup.id) members=[\(memberIDs)]"
+                )
+            }
             return lastActiveGroup
         }
-        return groupManager.group(for: windowID)
+        let resolved = groupManager.group(for: windowID)
+        if shouldLog {
+            Logger.log(
+                "[OWNERDBG] source=\(source) window=\(windowID) memberships=\(membershipCount) resolve=primary group=\(resolved?.id.uuidString ?? "nil") lastActive=\(lastActiveGroupID?.uuidString ?? "nil") members=[\(memberIDs)]"
+            )
+        }
+        return resolved
     }
 
     func promoteWindowOwnership(windowID: CGWindowID, group: TabGroup) {
+        let previous = lastActiveGroupID
         lastActiveGroupID = group.id
-        _ = groupManager.promotePrimaryGroup(windowID: windowID, groupID: group.id)
+        let promoted = groupManager.promotePrimaryGroup(windowID: windowID, groupID: group.id)
+        let membershipCount = groupManager.membershipCount(for: windowID)
+        if membershipCount > 1 || !promoted {
+            Logger.log(
+                "[OWNERDBG] promote window=\(windowID) group=\(group.id) memberships=\(membershipCount) promoted=\(promoted) lastActive=\(previous?.uuidString ?? "nil")->\(group.id.uuidString)"
+            )
+        }
     }
 
     func beginObservingWindowIfNeeded(_ window: WindowInfo) {
@@ -817,6 +843,8 @@ extension AppDelegate {
     func focusGroupFromCounter(_ targetGroupID: UUID) {
         guard let group = groupManager.groups.first(where: { $0.id == targetGroupID }),
               let activeWindow = group.activeWindow else { return }
+        let sharedGroupIDs = groupManager.groups(for: activeWindow.id).map(\.id.uuidString).joined(separator: ",")
+        Logger.log("[COUNTERDBG] click targetGroup=\(targetGroupID) activeWindow=\(activeWindow.id) lastActiveGroup=\(lastActiveGroupID?.uuidString ?? "nil") focusedWindowBefore=\(focusedWindowID().map(String.init) ?? "nil") sharedGroups=[\(sharedGroupIDs)]")
         promoteWindowOwnership(windowID: activeWindow.id, group: group)
         group.recordFocus(windowID: activeWindow.id)
         performCounterFocus(
@@ -838,9 +866,13 @@ extension AppDelegate {
 
     @discardableResult
     func prepareCounterFocusTransition(targetWindowID: CGWindowID, focusedWindowID: CGWindowID?) -> Bool {
-        guard focusedWindowID != targetWindowID else { return false }
-        beginCommitEchoSuppression(targetWindowID: targetWindowID)
-        invalidateDeferredFocusPanelOrdering()
+        guard focusedWindowID != targetWindowID else {
+            Logger.log("[COUNTERDBG] transition skip reason=already-focused target=\(targetWindowID)")
+            return false
+        }
+        Logger.log("[COUNTERDBG] transition apply target=\(targetWindowID) focusedBefore=\(focusedWindowID.map(String.init) ?? "nil")")
+        beginCommitEchoSuppression(targetWindowID: targetWindowID, source: "counter-click")
+        invalidateDeferredFocusPanelOrdering(reason: "counter-click target=\(targetWindowID)")
         return true
     }
 
@@ -866,12 +898,18 @@ extension AppDelegate {
             .filter { $0 != ownerGroupID }
 
         Logger.log(
-            "[COUNTER] panel-priority window=\(windowID) owner=\(ownerGroupID) sharedCount=\(sharedGroupIDs.count)"
+            "[COUNTER] panel-priority window=\(windowID) owner=\(ownerGroupID) ownerPanel=\(ownerPanel.windowNumber) sharedCount=\(sharedGroupIDs.count)"
         )
 
         for groupID in sharedGroupIDs {
             guard let panel = tabBarPanels[groupID] else { continue }
-            panel.order(.below, relativeTo: ownerPanel.windowNumber)
+            Logger.log(
+                "[COUNTERDBG] panel-hide window=\(windowID) owner=\(ownerGroupID) targetGroup=\(groupID) targetPanel=\(panel.windowNumber) relativeToOwnerPanel=\(ownerPanel.windowNumber) visibleBefore=\(panel.isVisible)"
+            )
+            // Keep only the selected group's bar visible for shared windows.
+            // `order(.below, ...)` can still leave stale bars flashing above during
+            // rapid focus/activation churn; explicitly hiding avoids that race.
+            panel.orderOut(nil)
         }
     }
 

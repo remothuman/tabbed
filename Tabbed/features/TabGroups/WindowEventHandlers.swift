@@ -60,21 +60,35 @@ extension AppDelegate {
 
 extension AppDelegate {
 
-    func invalidateDeferredFocusPanelOrdering() {
-        focusDrivenPanelOrderGeneration &+= 1
+    func nextFocusDiagnosticSequence() -> UInt64 {
+        focusDiagnosticSequence &+= 1
+        return focusDiagnosticSequence
     }
 
-    func shouldProcessFocusDrivenPanelOrdering(for windowID: CGWindowID) -> Bool {
+    func invalidateDeferredFocusPanelOrdering(reason: String = "unspecified") {
+        let previous = focusDrivenPanelOrderGeneration
+        focusDrivenPanelOrderGeneration &+= 1
+        Logger.log("[FOCUSDBG] invalidate-generation reason=\(reason) \(previous)->\(focusDrivenPanelOrderGeneration)")
+    }
+
+    func shouldProcessFocusDrivenPanelOrdering(for windowID: CGWindowID, source: String = "unknown") -> Bool {
         guard isCommitEchoSuppressionActive,
               let targetWindowID = pendingCommitEchoTargetWindowID else { return true }
-        return windowID == targetWindowID
+        let shouldProcess = windowID == targetWindowID
+        if !shouldProcess {
+            Logger.log("[FOCUSDBG] gate drop source=\(source) window=\(windowID) target=\(targetWindowID) echoSource=\(pendingCommitEchoSource ?? "unknown")")
+        } else {
+            Logger.log("[FOCUSDBG] gate allow source=\(source) window=\(windowID) target=\(targetWindowID)")
+        }
+        return shouldProcess
     }
 
-    func orderPanelAboveFromFocusEvent(_ panel: TabBarPanel, windowID: CGWindowID) {
-        guard shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+    func orderPanelAboveFromFocusEvent(_ panel: TabBarPanel, windowID: CGWindowID, source: String = "unknown") {
+        guard shouldProcessFocusDrivenPanelOrdering(for: windowID, source: source) else { return }
 
         focusDrivenPanelOrderGeneration &+= 1
         let generation = focusDrivenPanelOrderGeneration
+        Logger.log("[FOCUSDBG] order immediate source=\(source) window=\(windowID) generation=\(generation)")
         panel.orderAbove(windowID: windowID)
         onFocusPanelOrdered?(windowID)
 
@@ -82,15 +96,22 @@ extension AppDelegate {
         // third-party switcher), its reordering may finish after our orderAbove call.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak panel] in
             guard let self, let panel else { return }
-            guard self.focusDrivenPanelOrderGeneration == generation else { return }
-            guard self.shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+            guard self.focusDrivenPanelOrderGeneration == generation else {
+                Logger.log("[FOCUSDBG] order deferred drop reason=stale source=\(source) window=\(windowID) scheduledGeneration=\(generation) currentGeneration=\(self.focusDrivenPanelOrderGeneration)")
+                return
+            }
+            guard self.shouldProcessFocusDrivenPanelOrdering(for: windowID, source: "\(source)-deferred") else {
+                Logger.log("[FOCUSDBG] order deferred drop reason=gated source=\(source) window=\(windowID) generation=\(generation)")
+                return
+            }
+            Logger.log("[FOCUSDBG] order deferred apply source=\(source) window=\(windowID) generation=\(generation)")
             panel.orderAbove(windowID: windowID)
             self.onFocusPanelOrdered?(windowID)
         }
     }
 
     func handleWindowMoved(_ windowID: CGWindowID) {
-        guard let group = ownerGroup(for: windowID),
+        guard let group = ownerGroup(for: windowID, source: "windowMoved"),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
@@ -146,7 +167,7 @@ extension AppDelegate {
         // Check if a fullscreened window is exiting fullscreen.
         // This runs before the main guard because the fullscreened window
         // won't be the activeWindow (a visible tab is active instead).
-        if let group = ownerGroup(for: windowID),
+        if let group = ownerGroup(for: windowID, source: "windowResized-fullscreen-check"),
            let idx = group.windows.firstIndex(where: { $0.id == windowID }),
            idx < group.windows.count,
            group.windows[idx].isFullscreened {
@@ -158,7 +179,7 @@ extension AppDelegate {
             return
         }
 
-        guard let group = ownerGroup(for: windowID),
+        guard let group = ownerGroup(for: windowID, source: "windowResized"),
               let panel = tabBarPanels[group.id],
               let activeWindow = group.activeWindow,
               activeWindow.id == windowID,
@@ -257,8 +278,9 @@ extension AppDelegate {
 
     func handleWindowFocused(pid: pid_t, element: AXUIElement) {
         guard let windowID = AccessibilityHelper.windowID(for: element),
-              let group = ownerGroup(for: windowID),
+              let group = ownerGroup(for: windowID, source: "windowFocused"),
               let panel = tabBarPanels[group.id] else { return }
+        let eventID = nextFocusDiagnosticSequence()
 
         // Don't let a fullscreened window become the active tab —
         // it would confuse frame sync since it's on a different Space.
@@ -268,7 +290,9 @@ extension AppDelegate {
         // don't let OS focus events mutate group state — the switcher
         // owns the selection, and post-commit events are echoes of our
         // own raiseWindow/activate calls.
-        let suppressGroupState = switcherController.isActive || shouldSuppressCommitEcho(for: windowID)
+        let commitEchoSuppressed = shouldSuppressCommitEcho(for: windowID)
+        let suppressGroupState = switcherController.isActive || commitEchoSuppressed
+        Logger.log("[FOCUSDBG] event=\(eventID) type=windowFocused pid=\(pid) window=\(windowID) group=\(group.id) switcherActive=\(switcherController.isActive) commitEchoSuppressed=\(commitEchoSuppressed) suppressGroupState=\(suppressGroupState) lastActiveGroup=\(lastActiveGroupID?.uuidString ?? "nil")")
         if !suppressGroupState {
             let previousID = group.activeWindow?.id
             if previousID != windowID {
@@ -282,14 +306,18 @@ extension AppDelegate {
             evaluateAutoCapture()
         }
 
-        guard shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+        guard shouldProcessFocusDrivenPanelOrdering(for: windowID, source: "windowFocused#\(eventID)") else {
+            Logger.log("[FOCUSDBG] event=\(eventID) type=windowFocused panelOrdering=skipped window=\(windowID)")
+            return
+        }
 
         // Don't drag the group's panel to a different space — the window is about
         // to be ejected by the space-change handler and will get its own group.
         if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {
             movePanelToWindowSpace(panel, windowID: windowID)
         }
-        orderPanelAboveFromFocusEvent(panel, windowID: windowID)
+        Logger.log("[FOCUSDBG] event=\(eventID) type=windowFocused panelOrdering=apply window=\(windowID)")
+        orderPanelAboveFromFocusEvent(panel, windowID: windowID, source: "windowFocused#\(eventID)")
     }
 
     func handleWindowDestroyed(_ windowID: CGWindowID) {
@@ -358,12 +386,15 @@ extension AppDelegate {
         let windowElement = focusedRef as! AXUIElement // swiftlint:disable:this force_cast
         guard let windowID = AccessibilityHelper.windowID(for: windowElement) else { return }
         windowInventory.refreshAsync()
+        let eventID = nextFocusDiagnosticSequence()
 
-        let suppressGroupState = switcherController.isActive || shouldSuppressCommitEcho(for: windowID)
+        let commitEchoSuppressed = shouldSuppressCommitEcho(for: windowID)
+        let suppressGroupState = switcherController.isActive || commitEchoSuppressed
+        Logger.log("[FOCUSDBG] event=\(eventID) type=appActivated app=\(app.localizedName ?? "?") pid=\(pid) window=\(windowID) switcherActive=\(switcherController.isActive) commitEchoSuppressed=\(commitEchoSuppressed) suppressGroupState=\(suppressGroupState) lastActiveGroup=\(lastActiveGroupID?.uuidString ?? "nil")")
 
         // Record entity-level MRU (skip during active switcher sessions and commit echoes)
         if !suppressGroupState {
-            if let group = ownerGroup(for: windowID) {
+            if let group = ownerGroup(for: windowID, source: "appActivated-mru") {
                 recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
             } else {
                 recordGlobalActivation(.window(windowID))
@@ -371,7 +402,7 @@ extension AppDelegate {
         }
 
         // Group state updates
-        guard let group = ownerGroup(for: windowID),
+        guard let group = ownerGroup(for: windowID, source: "appActivated"),
               let panel = tabBarPanels[group.id] else { return }
 
         // Don't let a fullscreened window become the active tab
@@ -390,12 +421,16 @@ extension AppDelegate {
             evaluateAutoCapture()
         }
 
-        guard shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+        guard shouldProcessFocusDrivenPanelOrdering(for: windowID, source: "appActivated#\(eventID)") else {
+            Logger.log("[FOCUSDBG] event=\(eventID) type=appActivated panelOrdering=skipped window=\(windowID)")
+            return
+        }
 
         if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {
             movePanelToWindowSpace(panel, windowID: windowID)
         }
-        orderPanelAboveFromFocusEvent(panel, windowID: windowID)
+        Logger.log("[FOCUSDBG] event=\(eventID) type=appActivated panelOrdering=apply window=\(windowID)")
+        orderPanelAboveFromFocusEvent(panel, windowID: windowID, source: "appActivated#\(eventID)")
     }
 
     // MARK: - Space Change Handler

@@ -52,9 +52,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     weak var cyclingGroup: TabGroup?
     var pendingCommitEchoTargetWindowID: CGWindowID?
     var pendingCommitEchoDeadline: Date?
+    var pendingCommitEchoSource: String?
     static let commitEchoSuppressionTimeout: TimeInterval = 1.0
     /// Monotonic token used to discard stale deferred panel ordering callbacks.
     var focusDrivenPanelOrderGeneration: UInt64 = 0
+    /// Monotonic sequence for correlating focus diagnostics across callbacks.
+    var focusDiagnosticSequence: UInt64 = 0
     /// Test hook: called whenever focus-driven panel ordering is applied.
     var onFocusPanelOrdered: ((CGWindowID) -> Void)?
     var mruTracker = MRUTracker()
