@@ -19,8 +19,8 @@ extension AppDelegate {
         let groupedWindowIDs = TabWindowGrouping.focusedSegmentWindowIDs(
             in: group,
             focusedWindowID: group.activeWindow?.id,
-            splitPinnedTabs: switcherConfig.splitPinnedTabsIntoSeparateGroup,
-            splitSuperPinnedTabs: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
+            splitPinnedTabs: switcherConfig.splitPinnedTabsInInGroupSwitcher,
+            splitSuperPinnedTabs: switcherConfig.splitSuperPinnedTabsInInGroupSwitcher,
             splitOnSeparators: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         guard groupedWindowIDs.count > 1 else { return }
@@ -72,8 +72,8 @@ extension AppDelegate {
             items: items,
             style: switcherConfig.tabCycleStyle,
             scope: .withinGroup,
-            splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
-            splitSuperPinnedTabsIntoSeparateGroup: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
+            splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsInInGroupSwitcher,
+            splitSuperPinnedTabsIntoSeparateGroup: switcherConfig.splitSuperPinnedTabsInInGroupSwitcher,
             splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
         if reverse { switcherController.retreat() } else { switcherController.advance() }

@@ -60,6 +60,35 @@ extension AppDelegate {
 
 extension AppDelegate {
 
+    func invalidateDeferredFocusPanelOrdering() {
+        focusDrivenPanelOrderGeneration &+= 1
+    }
+
+    func shouldProcessFocusDrivenPanelOrdering(for windowID: CGWindowID) -> Bool {
+        guard isCommitEchoSuppressionActive,
+              let targetWindowID = pendingCommitEchoTargetWindowID else { return true }
+        return windowID == targetWindowID
+    }
+
+    func orderPanelAboveFromFocusEvent(_ panel: TabBarPanel, windowID: CGWindowID) {
+        guard shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+
+        focusDrivenPanelOrderGeneration &+= 1
+        let generation = focusDrivenPanelOrderGeneration
+        panel.orderAbove(windowID: windowID)
+        onFocusPanelOrdered?(windowID)
+
+        // Re-order after a delay — when the OS raises a window (dock click, Cmd-Tab,
+        // third-party switcher), its reordering may finish after our orderAbove call.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak panel] in
+            guard let self, let panel else { return }
+            guard self.focusDrivenPanelOrderGeneration == generation else { return }
+            guard self.shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+            panel.orderAbove(windowID: windowID)
+            self.onFocusPanelOrdered?(windowID)
+        }
+    }
+
     func handleWindowMoved(_ windowID: CGWindowID) {
         guard let group = ownerGroup(for: windowID),
               let panel = tabBarPanels[group.id],
@@ -253,17 +282,14 @@ extension AppDelegate {
             evaluateAutoCapture()
         }
 
+        guard shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+
         // Don't drag the group's panel to a different space — the window is about
         // to be ejected by the space-change handler and will get its own group.
         if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {
             movePanelToWindowSpace(panel, windowID: windowID)
         }
-        panel.orderAbove(windowID: windowID)
-        // Re-order after a delay — when the OS raises a window (dock click, Cmd-Tab,
-        // third-party switcher), its reordering may finish after our orderAbove call.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak panel] in
-            panel?.orderAbove(windowID: windowID)
-        }
+        orderPanelAboveFromFocusEvent(panel, windowID: windowID)
     }
 
     func handleWindowDestroyed(_ windowID: CGWindowID) {
@@ -364,13 +390,12 @@ extension AppDelegate {
             evaluateAutoCapture()
         }
 
+        guard shouldProcessFocusDrivenPanelOrdering(for: windowID) else { return }
+
         if group.spaceID == 0 || SpaceUtils.spaceID(for: windowID) == group.spaceID {
             movePanelToWindowSpace(panel, windowID: windowID)
         }
-        panel.orderAbove(windowID: windowID)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak panel] in
-            panel?.orderAbove(windowID: windowID)
-        }
+        orderPanelAboveFromFocusEvent(panel, windowID: windowID)
     }
 
     // MARK: - Space Change Handler

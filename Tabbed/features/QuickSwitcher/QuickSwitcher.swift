@@ -51,11 +51,13 @@ extension AppDelegate {
             Logger.log("[GS] inventory empty; refresh in progress")
             return
         }
+        let preferredSuperPinGroupID = activeGroup()?.0.id
         let items = mruTracker.buildSwitcherItems(
             groups: groupManager.groups,
             zOrderedWindows: zWindows,
             splitPinnedTabsIntoSeparateGroup: switcherConfig.splitPinnedTabsIntoSeparateGroup,
             splitSuperPinnedTabsIntoSeparateGroup: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup,
+            preferredGroupIDForSuperPins: preferredSuperPinGroupID,
             splitSeparatedTabsIntoSeparateGroups: switcherConfig.splitSeparatedTabsIntoSeparateGroups
         )
 

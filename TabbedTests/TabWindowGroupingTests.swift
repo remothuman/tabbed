@@ -54,6 +54,21 @@ final class TabWindowGroupingTests: XCTestCase {
         XCTAssertEqual(segments, [[1, 2], [3, 4]])
     }
 
+    func testSegmentsSplitPinnedTabsDoesNotTreatSuperPinnedAsRegularPinned() {
+        let superPinned = makeSuperPinnedWindow(id: 1)
+        let pinned = makeWindow(id: 2, pinned: true)
+        let unpinned = makeWindow(id: 3)
+        let group = TabGroup(windows: [superPinned, pinned, unpinned], frame: .zero)
+
+        let segments = TabWindowGrouping.segments(
+            in: group,
+            splitPinnedTabs: true,
+            splitOnSeparators: false
+        )
+
+        XCTAssertEqual(segments, [[1], [2], [3]])
+    }
+
     func testSegmentsSplitSuperPinnedTabsSeparatesSuperPinnedFromOthers() {
         let superPinned = makeSuperPinnedWindow(id: 1)
         let pinned = makeWindow(id: 2, pinned: true)

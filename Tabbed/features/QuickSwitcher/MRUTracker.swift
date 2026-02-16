@@ -87,12 +87,14 @@ final class MRUTracker {
         zOrderedWindows: [WindowInfo],
         splitPinnedTabsIntoSeparateGroup: Bool = false,
         splitSuperPinnedTabsIntoSeparateGroup: Bool = false,
+        preferredGroupIDForSuperPins: UUID? = nil,
         splitSeparatedTabsIntoSeparateGroups: Bool = false
     ) -> [SwitcherItem] {
         let groupFrames = groups.map(\.frame)
         let splitGroups = splitPinnedTabsIntoSeparateGroup
             || splitSuperPinnedTabsIntoSeparateGroup
             || splitSeparatedTabsIntoSeparateGroups
+        let shouldDedupeSuperPinnedWindows = splitPinnedTabsIntoSeparateGroup || splitSuperPinnedTabsIntoSeparateGroup
 
         struct GroupSegmentKey: Hashable {
             let groupID: UUID
@@ -103,9 +105,17 @@ final class MRUTracker {
         var segmentsByKey: [GroupSegmentKey: [CGWindowID]] = [:]
         var segmentKeysByWindowID: [CGWindowID: [GroupSegmentKey]] = [:]
         var segmentKeysByGroupID: [UUID: [GroupSegmentKey]] = [:]
+        var superPinnedGroupIDsByWindowID: [CGWindowID: Set<UUID>] = [:]
+
+        let mruGroupIDs = mruGroupOrder()
+        let mruGroupRank = Dictionary(uniqueKeysWithValues: mruGroupIDs.enumerated().map { ($0.element, $0.offset) })
+        let groupOrderRank = Dictionary(uniqueKeysWithValues: groups.enumerated().map { ($0.element.id, $0.offset) })
 
         for group in groups {
             groupsByID[group.id] = group
+            for window in group.managedWindows where window.isSuperPinned {
+                superPinnedGroupIDsByWindowID[window.id, default: []].insert(group.id)
+            }
             let segments = TabWindowGrouping.segments(
                 in: group,
                 splitPinnedTabs: splitPinnedTabsIntoSeparateGroup,
@@ -135,6 +145,26 @@ final class MRUTracker {
         var seenWindowIDs: Set<CGWindowID> = []
         var seenSuperPinnedWindowIDs: Set<CGWindowID> = []
 
+        func preferredSuperPinOwnerGroupID(for windowID: CGWindowID) -> UUID? {
+            guard let candidates = superPinnedGroupIDsByWindowID[windowID], !candidates.isEmpty else { return nil }
+
+            if let preferredGroupIDForSuperPins, candidates.contains(preferredGroupIDForSuperPins) {
+                return preferredGroupIDForSuperPins
+            }
+
+            return candidates.min { lhs, rhs in
+                let lhsMRURank = mruGroupRank[lhs] ?? Int.max
+                let rhsMRURank = mruGroupRank[rhs] ?? Int.max
+                if lhsMRURank != rhsMRURank { return lhsMRURank < rhsMRURank }
+
+                let lhsGroupOrderRank = groupOrderRank[lhs] ?? Int.max
+                let rhsGroupOrderRank = groupOrderRank[rhs] ?? Int.max
+                if lhsGroupOrderRank != rhsGroupOrderRank { return lhsGroupOrderRank < rhsGroupOrderRank }
+
+                return lhs.uuidString < rhs.uuidString
+            }
+        }
+
         func appendSegmentIfNeeded(_ key: GroupSegmentKey) {
             guard seenSegmentKeys.insert(key).inserted,
                   let group = groupsByID[key.groupID],
@@ -142,10 +172,14 @@ final class MRUTracker {
                   !windowIDs.isEmpty else { return }
 
             let dedupedWindowIDs: [CGWindowID]
-            if splitSuperPinnedTabsIntoSeparateGroup {
+            if shouldDedupeSuperPinnedWindows {
                 let managedByID = Dictionary(uniqueKeysWithValues: group.managedWindows.map { ($0.id, $0) })
                 dedupedWindowIDs = windowIDs.filter { windowID in
                     guard managedByID[windowID]?.isSuperPinned == true else { return true }
+                    if let preferredOwnerGroupID = preferredSuperPinOwnerGroupID(for: windowID),
+                       preferredOwnerGroupID != key.groupID {
+                        return false
+                    }
                     return seenSuperPinnedWindowIDs.insert(windowID).inserted
                 }
             } else {

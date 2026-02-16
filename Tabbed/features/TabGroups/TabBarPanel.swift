@@ -88,7 +88,8 @@ class TabBarPanel: NSPanel {
         onCrossPanelDrop: @escaping (Set<CGWindowID>, UUID, Int) -> Void,
         onDragOverPanels: @escaping (NSPoint) -> CrossPanelDropTarget?,
         onDragEnded: @escaping () -> Void,
-        isWindowShared: @escaping (CGWindowID) -> Bool
+        isWindowShared: @escaping (CGWindowID) -> Bool,
+        groupNameForCounterGroupID: @escaping (UUID) -> String?
     ) {
         self.group = groupRef
         self.tabBarConfig = tabBarConfigRef
@@ -118,6 +119,7 @@ class TabBarPanel: NSPanel {
             onDragOverPanels: onDragOverPanels,
             onDragEnded: onDragEnded,
             isWindowShared: isWindowShared,
+            groupNameForCounterGroupID: groupNameForCounterGroupID,
             onTooltipHover: { [weak self] title, tabLeadingX in
                 self?.handleTooltipHover(title: title, tabLeadingX: tabLeadingX)
             }

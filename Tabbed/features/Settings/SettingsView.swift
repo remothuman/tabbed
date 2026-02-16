@@ -10,7 +10,7 @@ enum SettingsTab: Int {
         case .launcher:  return 420
         case .tabBar:    return 360
         case .shortcuts: return 520
-        case .switcher:  return 550
+        case .switcher:  return 640
         }
     }
 }
@@ -99,7 +99,13 @@ struct SettingsView: View {
         .onChange(of: switcherConfig.splitPinnedTabsIntoSeparateGroup) { _ in
             onSwitcherConfigChanged(switcherConfig)
         }
+        .onChange(of: switcherConfig.includePinnedTabsInInGroupSwitcher) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
         .onChange(of: switcherConfig.splitSuperPinnedTabsIntoSeparateGroup) { _ in
+            onSwitcherConfigChanged(switcherConfig)
+        }
+        .onChange(of: switcherConfig.includeSuperPinnedTabsInInGroupSwitcher) { _ in
             onSwitcherConfigChanged(switcherConfig)
         }
         .onChange(of: switcherConfig.splitSeparatedTabsIntoSeparateGroups) { _ in
@@ -713,6 +719,33 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 8)
 
+            Toggle(isOn: $switcherConfig.splitSuperPinnedTabsIntoSeparateGroup) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Treat Superpinned Tabs as Separate Group")
+                    Text("Split superpinned tabs into their own cycle/switcher group.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+
+            Toggle(isOn: $switcherConfig.includeSuperPinnedTabsInInGroupSwitcher) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Still Include in In-Group Switcher")
+                    Text("When using the in-group switcher, include superpinned tabs like this split is off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.checkbox)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 32)
+            .padding(.vertical, 6)
+            .disabled(!switcherConfig.splitSuperPinnedTabsIntoSeparateGroup)
+
             Toggle(isOn: $switcherConfig.splitPinnedTabsIntoSeparateGroup) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Treat Pinned Tabs as Separate Group")
@@ -726,18 +759,19 @@ struct SettingsView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
 
-            Toggle(isOn: $switcherConfig.splitSuperPinnedTabsIntoSeparateGroup) {
+            Toggle(isOn: $switcherConfig.includePinnedTabsInInGroupSwitcher) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Treat Superpinned Tabs as Separate Group")
-                    Text("Split superpinned tabs into their own cycle/switcher group.")
+                    Text("Still Include in In-Group Switcher")
+                    Text("When using the in-group switcher, include pinned tabs like this split is off.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .toggleStyle(.checkbox)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 32)
             .padding(.vertical, 6)
+            .disabled(!switcherConfig.splitPinnedTabsIntoSeparateGroup)
 
             Toggle(isOn: $switcherConfig.splitSeparatedTabsIntoSeparateGroups) {
                 VStack(alignment: .leading, spacing: 2) {

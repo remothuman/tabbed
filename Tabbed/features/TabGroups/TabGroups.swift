@@ -615,6 +615,9 @@ extension AppDelegate {
             },
             isWindowShared: { [weak self] windowID in
                 (self?.groupManager.membershipCount(for: windowID) ?? 0) > 1
+            },
+            groupNameForCounterGroupID: { [weak self] targetGroupID in
+                self?.groupManager.groups.first(where: { $0.id == targetGroupID })?.displayName
             }
         )
 
@@ -827,10 +830,18 @@ extension AppDelegate {
         Logger.log(
             "[COUNTER] focus group=\(group.id) window=\(activeWindow.id) focused=\(focusedWindowID.map(String.init) ?? "nil") memberships=\(groupManager.membershipCount(for: activeWindow.id))"
         )
-        if focusedWindowID != activeWindow.id {
+        if prepareCounterFocusTransition(targetWindowID: activeWindow.id, focusedWindowID: focusedWindowID) {
             focusWindow(activeWindow)
         }
         showCounterTargetPanel(group: group, activeWindow: activeWindow)
+    }
+
+    @discardableResult
+    func prepareCounterFocusTransition(targetWindowID: CGWindowID, focusedWindowID: CGWindowID?) -> Bool {
+        guard focusedWindowID != targetWindowID else { return false }
+        beginCommitEchoSuppression(targetWindowID: targetWindowID)
+        invalidateDeferredFocusPanelOrdering()
+        return true
     }
 
     func showCounterTargetPanel(group: TabGroup, activeWindow: WindowInfo) {

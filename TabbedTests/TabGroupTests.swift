@@ -44,6 +44,25 @@ final class TabGroupTests: XCTestCase {
         XCTAssertNil(TabBarView.displayedGroupName(from: nil))
     }
 
+    func testDisplayedCounterTooltipTitleUsesTrimmedGroupName() {
+        let groupID = UUID()
+        let title = TabBarView.displayedCounterTooltipTitle(for: groupID) { id in
+            guard id == groupID else { return nil }
+            return "  Work  "
+        }
+        XCTAssertEqual(title, "Work")
+    }
+
+    func testDisplayedCounterTooltipTitleReturnsNilForUnnamedGroup() {
+        let groupID = UUID()
+        XCTAssertNil(
+            TabBarView.displayedCounterTooltipTitle(for: groupID) { _ in nil }
+        )
+        XCTAssertNil(
+            TabBarView.displayedCounterTooltipTitle(for: groupID) { _ in "   " }
+        )
+    }
+
     func testGroupNameReservedWidthIsMinimalWhenUnnamed() {
         XCTAssertEqual(TabBarView.groupNameReservedWidth(for: nil), TabBarView.groupNameEmptyHitWidth)
     }

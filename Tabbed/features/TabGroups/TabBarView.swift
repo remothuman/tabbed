@@ -35,6 +35,7 @@ struct TabBarView: View {
     var onDragOverPanels: (NSPoint) -> CrossPanelDropTarget?
     var onDragEnded: () -> Void
     var isWindowShared: (CGWindowID) -> Bool
+    var groupNameForCounterGroupID: (UUID) -> String? = { _ in nil }
     var onTooltipHover: ((_ title: String?, _ tabLeadingX: CGFloat) -> Void)?
 
     static let addButtonWidth: CGFloat = 20
@@ -65,6 +66,13 @@ struct TabBarView: View {
 
     static func displayedTabTitle(for window: WindowInfo) -> String {
         window.displayTitle
+    }
+
+    static func displayedCounterTooltipTitle(
+        for counterGroupID: UUID,
+        groupNameProvider: (UUID) -> String?
+    ) -> String? {
+        displayedGroupName(from: groupNameProvider(counterGroupID))
     }
 
     private static func measuredGroupNameReservedWidth(for displayedName: String) -> CGFloat {
@@ -423,6 +431,7 @@ struct TabBarView: View {
     @State private var snapIDs: Set<CGWindowID> = []
     @State private var snapOffset: CGFloat = 0
     @State private var tabLeadingXs: [CGWindowID: CGFloat] = [:]
+    @State private var counterLeadingXs: [UUID: CGFloat] = [:]
     @State private var editingTabID: CGWindowID?
     @State private var tabNameDraft = ""
     @State private var isEditingGroupName = false
@@ -1416,8 +1425,36 @@ struct TabBarView: View {
                             .padding(.horizontal, Self.groupCounterHorizontalPadding)
                             .padding(.vertical, 1)
                             .contentShape(Rectangle())
+                            .background(
+                                GeometryReader { counterGeo in
+                                    Color.clear
+                                        .onAppear {
+                                            counterLeadingXs[targetGroupID] = counterGeo.frame(in: .named("tabBar")).minX
+                                        }
+                                        .onChange(of: counterGeo.frame(in: .named("tabBar")).minX) { newX in
+                                            counterLeadingXs[targetGroupID] = newX
+                                        }
+                                }
+                            )
                     }
                     .buttonStyle(.plain)
+                    .onHover { hovering in
+                        guard tabBarConfig.showTooltip,
+                              counterDraggingGroupID == nil else {
+                            onTooltipHover?(nil, 0)
+                            return
+                        }
+
+                        if hovering,
+                           let title = Self.displayedCounterTooltipTitle(
+                               for: targetGroupID,
+                               groupNameProvider: groupNameForCounterGroupID
+                           ) {
+                            onTooltipHover?(title, counterLeadingXs[targetGroupID] ?? 0)
+                        } else {
+                            onTooltipHover?(nil, 0)
+                        }
+                    }
                     .offset(x: isDragging
                         ? counterDragTranslation
                         : counterShiftOffset(

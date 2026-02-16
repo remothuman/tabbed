@@ -53,6 +53,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var pendingCommitEchoTargetWindowID: CGWindowID?
     var pendingCommitEchoDeadline: Date?
     static let commitEchoSuppressionTimeout: TimeInterval = 1.0
+    /// Monotonic token used to discard stale deferred panel ordering callbacks.
+    var focusDrivenPanelOrderGeneration: UInt64 = 0
+    /// Test hook: called whenever focus-driven panel ordering is applied.
+    var onFocusPanelOrdered: ((CGWindowID) -> Void)?
     var mruTracker = MRUTracker()
     var windowInventory = WindowInventory()
     /// Set during tab bar drag to suppress window move/resize handlers for the dragged group.

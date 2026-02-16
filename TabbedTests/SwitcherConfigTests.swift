@@ -24,7 +24,9 @@ final class SwitcherConfigTests: XCTestCase {
         let config = SwitcherConfig()
         XCTAssertEqual(config.namedGroupLabelMode, .groupAppWindow)
         XCTAssertFalse(config.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(config.includePinnedTabsInInGroupSwitcher)
         XCTAssertFalse(config.splitSuperPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(config.includeSuperPinnedTabsInInGroupSwitcher)
         XCTAssertFalse(config.splitSeparatedTabsIntoSeparateGroups)
     }
 
@@ -35,7 +37,9 @@ final class SwitcherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.tabCycleStyle, .titles)
         XCTAssertEqual(decoded.namedGroupLabelMode, .groupAppWindow)
         XCTAssertFalse(decoded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.includePinnedTabsInInGroupSwitcher)
         XCTAssertFalse(decoded.splitSuperPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.includeSuperPinnedTabsInInGroupSwitcher)
         XCTAssertFalse(decoded.splitSeparatedTabsIntoSeparateGroups)
     }
 
@@ -46,7 +50,9 @@ final class SwitcherConfigTests: XCTestCase {
         XCTAssertEqual(decoded.tabCycleStyle, .titles)
         XCTAssertEqual(decoded.namedGroupLabelMode, .groupAppWindow)
         XCTAssertFalse(decoded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.includePinnedTabsInInGroupSwitcher)
         XCTAssertFalse(decoded.splitSuperPinnedTabsIntoSeparateGroup)
+        XCTAssertFalse(decoded.includeSuperPinnedTabsInInGroupSwitcher)
         XCTAssertFalse(decoded.splitSeparatedTabsIntoSeparateGroups)
     }
 
@@ -54,14 +60,29 @@ final class SwitcherConfigTests: XCTestCase {
         var config = SwitcherConfig()
         config.namedGroupLabelMode = .groupNameOnly
         config.splitPinnedTabsIntoSeparateGroup = true
+        config.includePinnedTabsInInGroupSwitcher = true
         config.splitSuperPinnedTabsIntoSeparateGroup = true
+        config.includeSuperPinnedTabsInInGroupSwitcher = true
         config.splitSeparatedTabsIntoSeparateGroups = true
         config.save()
 
         let loaded = SwitcherConfig.load()
         XCTAssertEqual(loaded.namedGroupLabelMode, .groupNameOnly)
         XCTAssertTrue(loaded.splitPinnedTabsIntoSeparateGroup)
+        XCTAssertTrue(loaded.includePinnedTabsInInGroupSwitcher)
         XCTAssertTrue(loaded.splitSuperPinnedTabsIntoSeparateGroup)
+        XCTAssertTrue(loaded.includeSuperPinnedTabsInInGroupSwitcher)
         XCTAssertTrue(loaded.splitSeparatedTabsIntoSeparateGroups)
+    }
+
+    func testInGroupComputedSplitFlagsRespectIncludeOverrides() {
+        var config = SwitcherConfig()
+        config.splitPinnedTabsIntoSeparateGroup = true
+        config.includePinnedTabsInInGroupSwitcher = true
+        config.splitSuperPinnedTabsIntoSeparateGroup = true
+        config.includeSuperPinnedTabsInInGroupSwitcher = false
+
+        XCTAssertFalse(config.splitPinnedTabsInInGroupSwitcher)
+        XCTAssertTrue(config.splitSuperPinnedTabsInInGroupSwitcher)
     }
 }
