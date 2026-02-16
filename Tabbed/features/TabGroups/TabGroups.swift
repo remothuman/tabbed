@@ -1185,6 +1185,7 @@ extension AppDelegate {
             removeSuperpinMirrors(windowIDs: [windowID], from: sourceGroup.id)
             collapseSuperpinMembership(forWindowID: windowID, keeping: sourceGroup)
         }
+        dissolveFunctionallyEmptySuperpinGroups()
         groupManager.objectWillChange.send()
     }
 
@@ -1219,6 +1220,45 @@ extension AppDelegate {
         }
 
         promoteWindowOwnership(windowID: windowID, group: sourceGroup)
+    }
+
+    /// Remove groups that only contain mirrored superpins and no local managed windows.
+    private func dissolveFunctionallyEmptySuperpinGroups() {
+        pruneSuperpinMirrorTracking()
+
+        let groupsToDissolve = groupManager.groups.filter { group in
+            let managedWindowIDs = Set(group.managedWindows.map(\.id))
+            guard !managedWindowIDs.isEmpty,
+                  let mirroredWindowIDs = superpinMirroredWindowIDsByGroupID[group.id],
+                  !mirroredWindowIDs.isEmpty else {
+                return false
+            }
+            guard managedWindowIDs.isSubset(of: mirroredWindowIDs) else { return false }
+            return managedWindowIDs.allSatisfy { groupManager.membershipCount(for: $0) > 1 }
+        }
+
+        for group in groupsToDissolve {
+            groupManager.dissolveGroup(group)
+            if let panel = tabBarPanels[group.id] {
+                handleGroupDissolution(group: group, panel: panel)
+                continue
+            }
+
+            if barDraggingGroupID == group.id { barDraggingGroupID = nil }
+            if autoCaptureGroup === group { deactivateAutoCapture() }
+            if lastActiveGroupID == group.id { lastActiveGroupID = nil }
+            selectedTabIDsByGroupID.removeValue(forKey: group.id)
+            superpinMirroredWindowIDsByGroupID.removeValue(forKey: group.id)
+            lastKnownMaximizedStateByGroupID.removeValue(forKey: group.id)
+            mruTracker.removeGroup(group.id)
+            if cyclingGroup === group { cyclingGroup = nil }
+            resyncWorkItems[group.id]?.cancel()
+            resyncWorkItems.removeValue(forKey: group.id)
+            for window in group.managedWindows {
+                expectedFrames.removeValue(forKey: window.id)
+            }
+            refreshMaximizedGroupCounters()
+        }
     }
 
     func setSuperPinned(_ superPinned: Bool, forWindowIDs ids: Set<CGWindowID>, in sourceGroup: TabGroup) {
@@ -1274,6 +1314,7 @@ extension AppDelegate {
         }
 
         if didMutate {
+            dissolveFunctionallyEmptySuperpinGroups()
             groupManager.objectWillChange.send()
         }
     }

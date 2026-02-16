@@ -92,4 +92,37 @@ final class SuperpinUnpinTests: XCTestCase {
         XCTAssertEqual(app.groupManager.group(for: superpinCandidate.id)?.id, target.id)
         XCTAssertFalse(app.superpinMirroredWindowIDsByGroupID.values.contains(where: { $0.contains(superpinCandidate.id) }))
     }
+
+    func testUnpinningMirroredSuperpinDissolvesGroupThatBecomesMirrorsOnly() {
+        let app = makeAppDelegateWithSuperpinEnabled()
+        let sourceWindow = makeWindow(id: 501)
+        let targetWindow = makeWindow(id: 502)
+        let thirdWindow = makeWindow(id: 503)
+
+        guard let source = app.groupManager.createGroup(with: [sourceWindow], frame: .zero),
+              let target = app.groupManager.createGroup(with: [targetWindow], frame: .zero),
+              let third = app.groupManager.createGroup(with: [thirdWindow], frame: .zero) else {
+            XCTFail("Expected group creation")
+            return
+        }
+
+        let counters = [source.id, target.id, third.id]
+        source.maximizedGroupCounterIDs = counters
+        target.maximizedGroupCounterIDs = counters
+        third.maximizedGroupCounterIDs = counters
+
+        app.setSuperPinned(true, forWindowIDs: [sourceWindow.id], in: source)
+        app.setSuperPinned(true, forWindowIDs: [thirdWindow.id], in: third)
+
+        XCTAssertTrue(source.contains(windowID: sourceWindow.id))
+        XCTAssertTrue(source.contains(windowID: thirdWindow.id))
+        XCTAssertTrue(app.superpinMirroredWindowIDsByGroupID[source.id]?.contains(thirdWindow.id) ?? false)
+
+        app.setPinned(false, forWindowIDs: [sourceWindow.id], in: target)
+
+        XCTAssertFalse(app.groupManager.groups.contains(where: { $0.id == source.id }))
+        XCTAssertTrue(third.contains(windowID: thirdWindow.id))
+        XCTAssertTrue(target.contains(windowID: sourceWindow.id))
+        XCTAssertEqual(app.groupManager.group(for: sourceWindow.id)?.id, target.id)
+    }
 }
