@@ -240,4 +240,142 @@ final class SuperpinUnpinTests: XCTestCase {
         XCTAssertFalse(app.groupManager.groups.contains(where: { $0.id == source.id }))
         XCTAssertTrue(third.contains(windowID: thirdWindow.id))
     }
+
+    func testHandleGroupLostSuperpinSupportOnLastMaximizedGroupDowngradesToRegularPin() {
+        let app = makeAppDelegateWithSuperpinEnabled()
+        let sourceWindow = makeWindow(id: 801)
+        let targetWindow = makeWindow(id: 802)
+
+        guard let source = app.groupManager.createGroup(with: [sourceWindow], frame: .zero),
+              let target = app.groupManager.createGroup(with: [targetWindow], frame: .zero) else {
+            XCTFail("Expected group creation")
+            return
+        }
+        configureSuperpinCounters(source: source, target: target)
+
+        app.setSuperPinned(true, forWindowIDs: [sourceWindow.id], in: source)
+        XCTAssertEqual(source.windows.first(where: { $0.id == sourceWindow.id })?.pinState, .super)
+
+        _ = app.handleGroupLostSuperpinSupport(source, remainingPeerCount: 0)
+
+        XCTAssertEqual(source.windows.first(where: { $0.id == sourceWindow.id })?.pinState, .normal)
+    }
+
+    func testHandleGroupLostSuperpinSupportOnNonLastWindowRemovesMirrorsAndUnpinsLocals() {
+        let app = makeAppDelegateWithSuperpinEnabled()
+        let sourceWindow = makeWindow(id: 811)
+        let targetWindow = makeWindow(id: 812)
+        let thirdWindow = makeWindow(id: 813)
+
+        guard let source = app.groupManager.createGroup(with: [sourceWindow], frame: .zero),
+              let target = app.groupManager.createGroup(with: [targetWindow], frame: .zero),
+              let third = app.groupManager.createGroup(with: [thirdWindow], frame: .zero) else {
+            XCTFail("Expected group creation")
+            return
+        }
+
+        let counters = [source.id, target.id, third.id]
+        source.maximizedGroupCounterIDs = counters
+        target.maximizedGroupCounterIDs = counters
+        third.maximizedGroupCounterIDs = counters
+
+        app.setSuperPinned(true, forWindowIDs: [sourceWindow.id], in: source)
+        app.setSuperPinned(true, forWindowIDs: [targetWindow.id], in: target)
+        XCTAssertTrue(target.contains(windowID: sourceWindow.id))
+        XCTAssertEqual(target.windows.first(where: { $0.id == targetWindow.id })?.pinState, .super)
+
+        _ = app.handleGroupLostSuperpinSupport(target, remainingPeerCount: 2)
+
+        XCTAssertEqual(target.windows.first(where: { $0.id == targetWindow.id })?.pinState, WindowPinState.none)
+        XCTAssertFalse(target.contains(windowID: sourceWindow.id))
+    }
+
+    func testSetSuperPinnedMarksExistingSharedMembershipAsMirror() {
+        let app = makeAppDelegateWithSuperpinEnabled()
+        let sharedWindow = makeWindow(id: 821)
+        let sourceCompanion = makeWindow(id: 822)
+        let targetCompanion = makeWindow(id: 823)
+
+        guard let source = app.groupManager.createGroup(with: [sharedWindow, sourceCompanion], frame: .zero),
+              let target = app.groupManager.createGroup(with: [targetCompanion], frame: .zero) else {
+            XCTFail("Expected group creation")
+            return
+        }
+        configureSuperpinCounters(source: source, target: target)
+
+        let sharedInsert = app.groupManager.addWindow(sharedWindow, to: target, allowSharedMembership: true)
+        XCTAssertTrue(sharedInsert)
+        XCTAssertTrue(target.contains(windowID: sharedWindow.id))
+        XCTAssertFalse(app.superpinMirroredWindowIDsByGroupID[target.id]?.contains(sharedWindow.id) ?? false)
+
+        app.setSuperPinned(true, forWindowIDs: [sharedWindow.id], in: source)
+
+        XCTAssertEqual(target.windows.first(where: { $0.id == sharedWindow.id })?.pinState, .super)
+        XCTAssertTrue(app.superpinMirroredWindowIDsByGroupID[target.id]?.contains(sharedWindow.id) ?? false)
+    }
+
+    func testMirrorOnlyGroupWithNoSuperpinsDoesNotAutoDissolve() {
+        let app = makeAppDelegateWithSuperpinEnabled()
+        let sourceLocal = makeWindow(id: 831)
+        let targetLocal = makeWindow(id: 832)
+
+        guard let source = app.groupManager.createGroup(with: [sourceLocal], frame: .zero),
+              let target = app.groupManager.createGroup(with: [targetLocal], frame: .zero) else {
+            XCTFail("Expected group creation")
+            return
+        }
+        configureSuperpinCounters(source: source, target: target)
+
+        let sharedInsert = app.groupManager.addWindow(targetLocal, to: source, allowSharedMembership: true)
+        XCTAssertTrue(sharedInsert)
+        app.superpinMirroredWindowIDsByGroupID[source.id] = [targetLocal.id]
+        XCTAssertTrue(source.contains(windowID: targetLocal.id))
+        XCTAssertEqual(source.windows.first(where: { $0.id == targetLocal.id })?.pinState, WindowPinState.none)
+
+        let visibleAXFrame = CoordinateConverter.visibleFrameInAX(for: NSScreen.screens[0])
+        let maximizedFrame = CGRect(
+            x: visibleAXFrame.origin.x,
+            y: visibleAXFrame.origin.y + ScreenCompensation.tabBarHeight,
+            width: visibleAXFrame.width,
+            height: visibleAXFrame.height - ScreenCompensation.tabBarHeight
+        )
+        source.frame = maximizedFrame
+        source.tabBarSqueezeDelta = ScreenCompensation.tabBarHeight
+        target.frame = maximizedFrame
+        target.tabBarSqueezeDelta = ScreenCompensation.tabBarHeight
+        source.spaceID = 1
+        target.spaceID = 1
+
+        app.releaseTabs(withIDs: [sourceLocal.id], from: source, panel: StubTabBarPanel())
+
+        XCTAssertTrue(app.groupManager.groups.contains(where: { $0.id == source.id }))
+        XCTAssertTrue(source.contains(windowID: targetLocal.id))
+    }
+
+    func testSyncSuperPinnedOrderReordersAcrossMaximizedPeers() {
+        let app = makeAppDelegateWithSuperpinEnabled()
+        let first = makeWindow(id: 841)
+        let second = makeWindow(id: 842)
+        let sourceCompanion = makeWindow(id: 843)
+        let targetCompanion = makeWindow(id: 844)
+
+        guard let source = app.groupManager.createGroup(with: [first, second, sourceCompanion], frame: .zero),
+              let target = app.groupManager.createGroup(with: [targetCompanion], frame: .zero) else {
+            XCTFail("Expected group creation")
+            return
+        }
+        configureSuperpinCounters(source: source, target: target)
+
+        app.setSuperPinned(true, forWindowIDs: [first.id, second.id], in: source)
+        XCTAssertEqual(target.windows.filter(\.isSuperPinned).count, 2)
+
+        source.movePinnedTab(withID: second.id, toPinnedIndex: 0)
+        let sourceOrder = source.windows.filter(\.isSuperPinned).map(\.id)
+        app.syncSuperPinnedOrder(from: source, orderedWindowIDs: sourceOrder)
+
+        XCTAssertEqual(
+            target.windows.filter(\.isSuperPinned).map(\.id),
+            [second.id, first.id]
+        )
+    }
 }

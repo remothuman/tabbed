@@ -30,6 +30,7 @@ struct TabBarView: View {
     var onCloseTabs: (Set<CGWindowID>) -> Void
     var onSetPinned: (Set<CGWindowID>, Bool) -> Void
     var onSetSuperPinned: (Set<CGWindowID>, Bool) -> Void
+    var onSuperPinnedOrderChanged: ([CGWindowID]) -> Void
     var onSelectionChanged: (Set<CGWindowID>) -> Void
     var onCrossPanelDrop: (Set<CGWindowID>, UUID, Int) -> Void
     var onDragOverPanels: (NSPoint) -> CrossPanelDropTarget?
@@ -981,6 +982,9 @@ struct TabBarView: View {
         guard draggingID != nil else { return }
 
         let target = computeTargetIndex(tabWidths: tabWidths, fallbackStep: tabStep) ?? dragStartIndex
+        let previousSuperPinnedOrder = group.windows
+            .filter { !$0.isSeparator && $0.isSuperPinned }
+            .map(\.id)
         let exactTranslation: CGFloat = {
             guard draggingIDs.count == 1,
                   dragStartIndex >= 0, dragStartIndex < tabWidths.count,
@@ -1039,6 +1043,13 @@ struct TabBarView: View {
             if isMulti { selectedIDs = [] }
             snapIDs = ids
             snapOffset = residual
+        }
+
+        let nextSuperPinnedOrder = group.windows
+            .filter { !$0.isSeparator && $0.isSuperPinned }
+            .map(\.id)
+        if nextSuperPinnedOrder != previousSuperPinnedOrder {
+            onSuperPinnedOrderChanged(nextSuperPinnedOrder)
         }
 
         // Phase 2: animate the residual to 0 in the next frame.

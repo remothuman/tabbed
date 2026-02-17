@@ -631,6 +631,9 @@ extension AppDelegate {
             onSetSuperPinned: { [weak self] ids, superPinned in
                 self?.setSuperPinned(superPinned, forWindowIDs: ids, in: group)
             },
+            onSuperPinnedOrderChanged: { [weak self] orderedWindowIDs in
+                self?.syncSuperPinnedOrder(from: group, orderedWindowIDs: orderedWindowIDs)
+            },
             onSelectionChanged: { [weak self] ids in
                 self?.selectedTabIDsByGroupID[group.id] = ids
             },
@@ -726,6 +729,9 @@ extension AppDelegate {
     }
 
     func refreshMaximizedGroupCounters() {
+        let previousCounterIDsByGroupID = Dictionary(
+            uniqueKeysWithValues: groupManager.groups.map { ($0.id, $0.maximizedGroupCounterIDs) }
+        )
         let candidates = groupManager.groups.map { group in
             MaximizedGroupCounterPolicy.Candidate(
                 groupID: group.id,
@@ -761,7 +767,10 @@ extension AppDelegate {
             }
         }
 
-        applySuperpinMaximizeTransitions(candidates: candidates)
+        applySuperpinMaximizeTransitions(
+            candidates: candidates,
+            previousCounterIDsByGroupID: previousCounterIDsByGroupID
+        )
         var nextKnownStates: [UUID: Bool] = [:]
         for candidate in candidates {
             nextKnownStates[candidate.groupID] = candidate.isMaximized
@@ -769,7 +778,10 @@ extension AppDelegate {
         lastKnownMaximizedStateByGroupID = nextKnownStates
     }
 
-    private func applySuperpinMaximizeTransitions(candidates: [MaximizedGroupCounterPolicy.Candidate]) {
+    private func applySuperpinMaximizeTransitions(
+        candidates: [MaximizedGroupCounterPolicy.Candidate],
+        previousCounterIDsByGroupID: [UUID: [UUID]]
+    ) {
         guard !isApplyingSuperpinMaximizeTransitions else { return }
         guard tabBarConfig.showMaximizedGroupCounters else { return }
 
@@ -777,19 +789,67 @@ extension AppDelegate {
         defer { isApplyingSuperpinMaximizeTransitions = false }
 
         let previousStates = lastKnownMaximizedStateByGroupID
+        let candidatesByGroupID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.groupID, $0) })
+        var didMutate = false
         for candidate in candidates {
             let wasMaximized = previousStates[candidate.groupID] ?? false
-            guard wasMaximized != candidate.isMaximized,
+            let previousCounterIDs = previousCounterIDsByGroupID[candidate.groupID] ?? []
+            guard (wasMaximized != candidate.isMaximized) || previousCounterIDs != (groupManager.groups.first(where: { $0.id == candidate.groupID })?.maximizedGroupCounterIDs ?? []),
                   let group = groupManager.groups.first(where: { $0.id == candidate.groupID }) else { continue }
-            if candidate.isMaximized {
-                handleGroupDidMaximize(group)
-            } else {
-                handleGroupDidUnmaximize(group)
+
+            var alreadySynchronized = false
+            var alreadyHandledSupportLoss = false
+            if wasMaximized != candidate.isMaximized {
+                if candidate.isMaximized {
+                    didMutate = handleGroupDidMaximize(group) || didMutate
+                    alreadySynchronized = true
+                } else {
+                    let remainingPeerCount = previousCounterIDs
+                        .filter { $0 != group.id && (candidatesByGroupID[$0]?.isMaximized ?? false) }
+                        .count
+                    didMutate = handleGroupDidUnmaximize(group, remainingPeerCount: remainingPeerCount) || didMutate
+                    alreadyHandledSupportLoss = true
+                }
             }
+
+            let previousSupportsSuperpin = supportsSuperpin(
+                counterGroupIDs: previousCounterIDs,
+                currentGroupID: group.id
+            )
+            let nextCounterIDs = group.maximizedGroupCounterIDs
+            let nextSupportsSuperpin = supportsSuperpin(
+                counterGroupIDs: nextCounterIDs,
+                currentGroupID: group.id
+            )
+
+            if previousSupportsSuperpin && !nextSupportsSuperpin {
+                if !alreadyHandledSupportLoss {
+                    let remainingPeerCount = previousCounterIDs
+                        .filter { $0 != group.id && (candidatesByGroupID[$0]?.isMaximized ?? false) }
+                        .count
+                    didMutate = handleGroupLostSuperpinSupport(group, remainingPeerCount: remainingPeerCount) || didMutate
+                }
+            } else if nextSupportsSuperpin && !alreadySynchronized {
+                didMutate = synchronizeSuperpins(for: group) || didMutate
+            }
+        }
+
+        if didMutate {
+            dissolveFunctionallyEmptySuperpinGroups()
+            groupManager.objectWillChange.send()
         }
     }
 
-    private func handleGroupDidUnmaximize(_ group: TabGroup) {
+    private func supportsSuperpin(counterGroupIDs: [UUID], currentGroupID: UUID) -> Bool {
+        TabBarView.supportsSuperpin(
+            counterGroupIDs: counterGroupIDs,
+            currentGroupID: currentGroupID,
+            enabled: tabBarConfig.showMaximizedGroupCounters
+        )
+    }
+
+    @discardableResult
+    func handleGroupLostSuperpinSupport(_ group: TabGroup, remainingPeerCount: Int) -> Bool {
         pruneSuperpinMirrorTracking()
 
         let mirroredWindowIDs = superpinMirroredWindowIDsByGroupID[group.id] ?? []
@@ -798,26 +858,51 @@ extension AppDelegate {
                 .filter { !$0.isSeparator && $0.pinState == .super }
                 .map(\.id)
         )
+        let mirroredSuperPinnedWindowIDs = mirroredWindowIDs.intersection(superPinnedWindowIDs)
+        let mirroredNonSuperPinnedWindowIDs = mirroredWindowIDs.subtracting(mirroredSuperPinnedWindowIDs)
 
-        let localWindowIDs = superPinnedWindowIDs.subtracting(mirroredWindowIDs)
+        let localWindowIDs = superPinnedWindowIDs.subtracting(mirroredSuperPinnedWindowIDs)
+        var didMutate = false
         if !localWindowIDs.isEmpty {
-            group.setSuperPinned(false, forWindowIDs: localWindowIDs, downgradeToNormalWhenUnset: true)
+            group.setSuperPinned(
+                false,
+                forWindowIDs: localWindowIDs,
+                downgradeToNormalWhenUnset: remainingPeerCount == 0
+            )
+            didMutate = true
         }
-        if !mirroredWindowIDs.isEmpty {
-            _ = releaseMirroredSuperpinWindows(withIDs: mirroredWindowIDs, from: group)
+        if !mirroredSuperPinnedWindowIDs.isEmpty {
+            _ = releaseMirroredSuperpinWindows(withIDs: mirroredSuperPinnedWindowIDs, from: group)
+            didMutate = true
         }
+        if !mirroredNonSuperPinnedWindowIDs.isEmpty {
+            removeSuperpinMirrors(windowIDs: mirroredNonSuperPinnedWindowIDs, from: group.id)
+        }
+        return didMutate
     }
 
-    private func handleGroupDidMaximize(_ group: TabGroup) {
+    @discardableResult
+    private func handleGroupDidUnmaximize(_ group: TabGroup, remainingPeerCount: Int) -> Bool {
+        handleGroupLostSuperpinSupport(group, remainingPeerCount: remainingPeerCount)
+    }
+
+    @discardableResult
+    private func synchronizeSuperpins(for group: TabGroup) -> Bool {
         pruneSuperpinMirrorTracking()
-        guard group.maximizedGroupCounterIDs.contains(group.id) else { return }
+
+        guard supportsSuperpin(
+            counterGroupIDs: group.maximizedGroupCounterIDs,
+            currentGroupID: group.id
+        ) else {
+            return false
+        }
 
         let groupsByID = Dictionary(uniqueKeysWithValues: groupManager.groups.map { ($0.id, $0) })
         let peerGroups = group.maximizedGroupCounterIDs.compactMap { id -> TabGroup? in
             guard id != group.id else { return nil }
             return groupsByID[id]
         }
-        guard !peerGroups.isEmpty else { return }
+        guard !peerGroups.isEmpty else { return false }
 
         var superPinnedByWindowID: [CGWindowID: WindowInfo] = [:]
         for peer in peerGroups {
@@ -827,13 +912,38 @@ extension AppDelegate {
                 }
             }
         }
-        guard !superPinnedByWindowID.isEmpty else { return }
+
+        let expectedSuperPinnedWindowIDs = Set(superPinnedByWindowID.keys)
+        let trackedMirrors = superpinMirroredWindowIDsByGroupID[group.id] ?? []
+        let staleMirrors = trackedMirrors.subtracting(expectedSuperPinnedWindowIDs)
+        let currentSuperPinnedWindowIDs = Set(
+            group.windows
+                .filter { !$0.isSeparator && $0.pinState == .super }
+                .map(\.id)
+        )
+        let staleSuperPinnedMirrors = staleMirrors.intersection(currentSuperPinnedWindowIDs)
+        let staleNonSuperPinnedMirrors = staleMirrors.subtracting(staleSuperPinnedMirrors)
+
+        var didMutate = false
+        if !staleSuperPinnedMirrors.isEmpty {
+            _ = releaseMirroredSuperpinWindows(withIDs: staleSuperPinnedMirrors, from: group)
+            didMutate = true
+        }
+        if !staleNonSuperPinnedMirrors.isEmpty {
+            removeSuperpinMirrors(windowIDs: staleNonSuperPinnedMirrors, from: group.id)
+        }
+        guard !superPinnedByWindowID.isEmpty else { return didMutate }
 
         for (windowID, windowInfo) in superPinnedByWindowID {
             if group.contains(windowID: windowID) {
                 group.setSuperPinned(true, forWindowIDs: [windowID])
+                if let ownerGroupID = groupManager.group(for: windowID)?.id, ownerGroupID != group.id {
+                    markSuperpinMirror(windowID: windowID, in: group.id)
+                }
+                didMutate = true
                 continue
             }
+
             var mirrored = windowInfo
             mirrored.pinState = .super
             let didAdd = groupManager.addWindow(
@@ -845,7 +955,14 @@ extension AppDelegate {
             guard didAdd else { continue }
             markSuperpinMirror(windowID: windowID, in: group.id)
             beginObservingWindowIfNeeded(mirrored)
+            didMutate = true
         }
+        return didMutate
+    }
+
+    @discardableResult
+    private func handleGroupDidMaximize(_ group: TabGroup) -> Bool {
+        synchronizeSuperpins(for: group)
     }
 
     func focusGroupFromCounter(_ targetGroupID: UUID) {
@@ -1238,19 +1355,27 @@ extension AppDelegate {
         promoteWindowOwnership(windowID: windowID, group: sourceGroup)
     }
 
-    /// Remove groups that only contain mirrored superpins and no local managed windows.
+    /// Remove maximized groups that now only contain superpinned tabs.
     private func dissolveFunctionallyEmptySuperpinGroups() {
         pruneSuperpinMirrorTracking()
 
         let groupsToDissolve = groupManager.groups.filter { group in
-            let managedWindowIDs = Set(group.managedWindows.map(\.id))
-            guard !managedWindowIDs.isEmpty,
-                  let mirroredWindowIDs = superpinMirroredWindowIDsByGroupID[group.id],
-                  !mirroredWindowIDs.isEmpty else {
+            guard supportsSuperpin(
+                counterGroupIDs: group.maximizedGroupCounterIDs,
+                currentGroupID: group.id
+            ) else {
                 return false
             }
-            guard managedWindowIDs.isSubset(of: mirroredWindowIDs) else { return false }
-            return managedWindowIDs.allSatisfy { groupManager.membershipCount(for: $0) > 1 }
+            let managedWindows = group.managedWindows
+            guard !managedWindows.isEmpty else { return false }
+            let managedWindowIDs = Set(managedWindows.map(\.id))
+            guard let mirroredWindowIDs = superpinMirroredWindowIDsByGroupID[group.id],
+                  !mirroredWindowIDs.isEmpty,
+                  managedWindowIDs.isSubset(of: mirroredWindowIDs) else {
+                return false
+            }
+            guard managedWindows.allSatisfy(\.isSuperPinned) else { return false }
+            return managedWindows.allSatisfy { groupManager.membershipCount(for: $0.id) > 1 }
         }
 
         for group in groupsToDissolve {
@@ -1279,10 +1404,9 @@ extension AppDelegate {
 
     func setSuperPinned(_ superPinned: Bool, forWindowIDs ids: Set<CGWindowID>, in sourceGroup: TabGroup) {
         guard !ids.isEmpty else { return }
-        guard TabBarView.supportsSuperpin(
+        guard supportsSuperpin(
             counterGroupIDs: sourceGroup.maximizedGroupCounterIDs,
-            currentGroupID: sourceGroup.id,
-            enabled: tabBarConfig.showMaximizedGroupCounters
+            currentGroupID: sourceGroup.id
         ) else { return }
 
         pruneSuperpinMirrorTracking()
@@ -1290,6 +1414,10 @@ extension AppDelegate {
         var didMutate = false
 
         if superPinned {
+            removeSuperpinMirrors(windowIDs: ids, from: sourceGroup.id)
+            for windowID in ids {
+                promoteWindowOwnership(windowID: windowID, group: sourceGroup)
+            }
             let targetGroupsByID = Dictionary(uniqueKeysWithValues: groupManager.groups.map { ($0.id, $0) })
             for targetGroupID in sourceGroup.maximizedGroupCounterIDs {
                 guard let targetGroup = targetGroupsByID[targetGroupID] else { continue }
@@ -1297,6 +1425,11 @@ extension AppDelegate {
                     guard var sourceWindow = sourceWindowsByID[windowID], !sourceWindow.isSeparator else { continue }
                     if targetGroup.contains(windowID: windowID) {
                         targetGroup.setSuperPinned(true, forWindowIDs: [windowID])
+                        if targetGroup.id != sourceGroup.id,
+                           let ownerGroupID = groupManager.group(for: windowID)?.id,
+                           ownerGroupID != targetGroup.id {
+                            markSuperpinMirror(windowID: windowID, in: targetGroup.id)
+                        }
                         didMutate = true
                         continue
                     }
@@ -1308,7 +1441,9 @@ extension AppDelegate {
                         allowSharedMembership: true
                     )
                     guard didAdd else { continue }
-                    markSuperpinMirror(windowID: windowID, in: targetGroup.id)
+                    if targetGroup.id != sourceGroup.id {
+                        markSuperpinMirror(windowID: windowID, in: targetGroup.id)
+                    }
                     beginObservingWindowIfNeeded(sourceWindow)
                     didMutate = true
                 }
@@ -1331,6 +1466,52 @@ extension AppDelegate {
 
         if didMutate {
             dissolveFunctionallyEmptySuperpinGroups()
+            groupManager.objectWillChange.send()
+        }
+    }
+
+    func syncSuperPinnedOrder(from sourceGroup: TabGroup, orderedWindowIDs: [CGWindowID]) {
+        guard supportsSuperpin(
+            counterGroupIDs: sourceGroup.maximizedGroupCounterIDs,
+            currentGroupID: sourceGroup.id
+        ) else { return }
+
+        let sourceSuperPinnedOrder = sourceGroup.windows
+            .filter { !$0.isSeparator && $0.isSuperPinned }
+            .map(\.id)
+        guard sourceSuperPinnedOrder.count >= 2 else { return }
+
+        let candidateOrder = orderedWindowIDs.filter { sourceSuperPinnedOrder.contains($0) }
+        let desiredOrder = candidateOrder.isEmpty ? sourceSuperPinnedOrder : candidateOrder
+        let desiredRank = Dictionary(uniqueKeysWithValues: desiredOrder.enumerated().map { ($0.element, $0.offset) })
+        let groupsByID = Dictionary(uniqueKeysWithValues: groupManager.groups.map { ($0.id, $0) })
+
+        var didMutate = false
+        for targetGroupID in sourceGroup.maximizedGroupCounterIDs where targetGroupID != sourceGroup.id {
+            guard let targetGroup = groupsByID[targetGroupID] else { continue }
+            let targetSuperPinnedOrder = targetGroup.windows
+                .filter { !$0.isSeparator && $0.isSuperPinned }
+                .map(\.id)
+            guard targetSuperPinnedOrder.count >= 2 else { continue }
+
+            let existingRank = Dictionary(
+                uniqueKeysWithValues: targetSuperPinnedOrder.enumerated().map { ($0.element, $0.offset) }
+            )
+            let reordered = targetSuperPinnedOrder.sorted { lhs, rhs in
+                let lhsDesired = desiredRank[lhs] ?? Int.max
+                let rhsDesired = desiredRank[rhs] ?? Int.max
+                if lhsDesired != rhsDesired { return lhsDesired < rhsDesired }
+                return (existingRank[lhs] ?? Int.max) < (existingRank[rhs] ?? Int.max)
+            }
+            guard reordered != targetSuperPinnedOrder else { continue }
+
+            for (index, windowID) in reordered.enumerated() {
+                targetGroup.movePinnedTab(withID: windowID, toPinnedIndex: index)
+            }
+            didMutate = true
+        }
+
+        if didMutate {
             groupManager.objectWillChange.send()
         }
     }

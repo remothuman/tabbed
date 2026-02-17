@@ -1,3 +1,11 @@
+- hyper k or some other shortcut searches active tabs
+- fix up maximized + superpins behavior (in progress)
+    - should gracefully transition to regular pins on last window unmaximizes, to nothing on not-last window unmaximizes, and remove any maximized window with just superpins
+- move mirror tabs down below newly named merge groups
+- improve tab dragging behavior
+
+- 
+
 
 - do a pass on default settings and clean install
 
