@@ -111,11 +111,16 @@ extension AppDelegate {
     }
 
     func handleWindowMoved(_ windowID: CGWindowID) {
-        guard let group = ownerGroup(for: windowID, source: "windowMoved"),
-              let panel = tabBarPanels[group.id],
-              let activeWindow = group.activeWindow,
-              activeWindow.id == windowID,
-              let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
+        let containingGroups = groupManager.groups(for: windowID)
+        guard !containingGroups.isEmpty,
+              let windowInfo = containingGroups.compactMap({ g in g.windows.first(where: { $0.id == windowID }) }).first,
+              let frame = AccessibilityHelper.getFrame(of: windowInfo.element) else { return }
+
+        let group: TabGroup? = containingGroups.count > 1
+            ? ownerGroupForWindowMove(for: windowID, currentFrame: frame, source: "windowMoved")
+            : containingGroups[0]
+        guard let group = group,
+              let panel = tabBarPanels[group.id] else { return }
 
         if barDraggingGroupID == group.id { return }
         if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
@@ -128,7 +133,7 @@ extension AppDelegate {
         )
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
         let (adjustedFrame, squeezeDelta) = applyClamp(
-            element: activeWindow.element, windowID: windowID,
+            element: windowInfo.element, windowID: windowID,
             frame: frame, visibleFrame: visibleFrame,
             existingSqueezeDelta: existingSqueeze
         )
@@ -143,7 +148,10 @@ extension AppDelegate {
         }
 
         panel.positionAbove(windowFrame: adjustedFrame, isMaximized: isGroupMaximized(group).0)
-        panel.orderAbove(windowID: activeWindow.id)
+        panel.orderAbove(windowID: windowID)
+        if containingGroups.count > 1 {
+            promoteWindowOwnership(windowID: windowID, group: group)
+        }
         evaluateAutoCapture()
     }
 
@@ -164,6 +172,10 @@ extension AppDelegate {
     }
 
     func handleWindowResized(_ windowID: CGWindowID) {
+        let containingGroups = groupManager.groups(for: windowID)
+        guard !containingGroups.isEmpty,
+              let windowInfo = containingGroups.compactMap({ g in g.windows.first(where: { $0.id == windowID }) }).first else { return }
+
         // Check if a fullscreened window is exiting fullscreen.
         // This runs before the main guard because the fullscreened window
         // won't be the activeWindow (a visible tab is active instead).
@@ -171,7 +183,6 @@ extension AppDelegate {
            let idx = group.windows.firstIndex(where: { $0.id == windowID }),
            idx < group.windows.count,
            group.windows[idx].isFullscreened {
-            // Capture window reference safely to avoid multiple array accesses
             let window = group.windows[idx]
             if !AccessibilityHelper.isFullScreen(window.element) {
                 handleFullscreenExit(windowID: windowID, group: group)
@@ -179,16 +190,17 @@ extension AppDelegate {
             return
         }
 
-        guard let group = ownerGroup(for: windowID, source: "windowResized"),
-              let panel = tabBarPanels[group.id],
-              let activeWindow = group.activeWindow,
-              activeWindow.id == windowID,
-              let frame = AccessibilityHelper.getFrame(of: activeWindow.element) else { return }
+        guard let frame = AccessibilityHelper.getFrame(of: windowInfo.element) else { return }
+        let group: TabGroup? = containingGroups.count > 1
+            ? ownerGroupForWindowMove(for: windowID, currentFrame: frame, source: "windowResized")
+            : containingGroups[0]
+        guard let group = group,
+              let panel = tabBarPanels[group.id] else { return }
 
         if barDraggingGroupID == group.id { return }
         if shouldSuppress(windowID: windowID, currentFrame: frame) { return }
 
-        if AccessibilityHelper.isFullScreen(activeWindow.element) {
+        if AccessibilityHelper.isFullScreen(windowInfo.element) {
             Logger.log("[FULLSCREEN] Window \(windowID) entered fullscreen in group \(group.id)")
             expectedFrames.removeValue(forKey: windowID)
             setWindowFullscreenState(true, for: windowID)
@@ -213,7 +225,7 @@ extension AppDelegate {
 
         let visibleFrame = CoordinateConverter.visibleFrameInAX(at: frame.origin)
         let (adjustedFrame, squeezeDelta) = applyClamp(
-            element: activeWindow.element, windowID: windowID,
+            element: windowInfo.element, windowID: windowID,
             frame: frame, visibleFrame: visibleFrame,
             existingSqueezeDelta: existingSqueeze
         )
@@ -228,7 +240,10 @@ extension AppDelegate {
         }
 
         panel.positionAbove(windowFrame: adjustedFrame, isMaximized: isGroupMaximized(group).0)
-        panel.orderAbove(windowID: activeWindow.id)
+        panel.orderAbove(windowID: windowID)
+        if containingGroups.count > 1 {
+            promoteWindowOwnership(windowID: windowID, group: group)
+        }
         evaluateAutoCapture()
 
         let groupID = group.id

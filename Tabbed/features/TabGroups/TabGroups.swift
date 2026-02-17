@@ -44,6 +44,27 @@ extension AppDelegate {
         return resolved
     }
 
+    /// For move/resize events: when a mirrored window is dragged, resolve the group whose
+    /// frame is spatially closest to the window's current frame — that's the tab bar that
+    /// should follow. Falls back to ownerGroup for single-membership or when frame is unavailable.
+    func ownerGroupForWindowMove(for windowID: CGWindowID, currentFrame: CGRect, source: String = "unknown") -> TabGroup? {
+        let groups = groupManager.groups(for: windowID)
+        guard !groups.isEmpty else { return nil }
+        guard groups.count > 1 else { return groups[0] }
+
+        let closest = groups.min(by: { a, b in
+            let da = hypot(a.frame.origin.x - currentFrame.origin.x, a.frame.origin.y - currentFrame.origin.y)
+            let db = hypot(b.frame.origin.x - currentFrame.origin.x, b.frame.origin.y - currentFrame.origin.y)
+            return da < db
+        })
+        if let g = closest {
+            Logger.log(
+                "[OWNERDBG] source=\(source) window=\(windowID) memberships=\(groups.count) resolve=spatial group=\(g.id)"
+            )
+        }
+        return closest
+    }
+
     func promoteWindowOwnership(windowID: CGWindowID, group: TabGroup) {
         let previous = lastActiveGroupID
         lastActiveGroupID = group.id
