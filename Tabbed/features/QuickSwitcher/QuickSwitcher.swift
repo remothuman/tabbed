@@ -120,7 +120,7 @@ extension AppDelegate {
     func commitSwitcherSelection(_ item: SwitcherItem, subIndex: Int?) {
         switch item {
         case .singleWindow(let window):
-            beginCommitEchoSuppression(targetWindowID: window.id)
+            beginCommitEchoSuppression(targetWindowID: window.id, source: "quick-switcher.single")
             recordGlobalActivation(.window(window.id))
             focusWindow(window)
         case .group(let group):
@@ -128,7 +128,7 @@ extension AppDelegate {
                 group.switchTo(index: subIndex)
             }
             guard let activeWindow = group.activeWindow else { return }
-            beginCommitEchoSuppression(targetWindowID: activeWindow.id)
+            beginCommitEchoSuppression(targetWindowID: activeWindow.id, source: "quick-switcher.group")
             recordGlobalActivation(.groupWindow(groupID: group.id, windowID: activeWindow.id))
             promoteWindowOwnership(windowID: activeWindow.id, group: group)
             group.recordFocus(windowID: activeWindow.id)
@@ -149,7 +149,7 @@ extension AppDelegate {
                 group.switchTo(windowID: firstWindowID)
             }
             guard let activeWindow = group.activeWindow, windowIDs.contains(activeWindow.id) else { return }
-            beginCommitEchoSuppression(targetWindowID: activeWindow.id)
+            beginCommitEchoSuppression(targetWindowID: activeWindow.id, source: "quick-switcher.segment")
             recordGlobalActivation(.groupWindow(groupID: group.id, windowID: activeWindow.id))
             promoteWindowOwnership(windowID: activeWindow.id, group: group)
             group.recordFocus(windowID: activeWindow.id)

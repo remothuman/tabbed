@@ -216,6 +216,13 @@ enum AccessibilityHelper {
         return focusedWindowID != targetWindowID
     }
 
+    static func shouldRetryRaiseAfterActivation(
+        focusedWindowID: CGWindowID?,
+        targetWindowID: CGWindowID
+    ) -> Bool {
+        focusedWindowID != targetWindowID
+    }
+
     static func shouldActivateViaNSApp(
         windowOwnerPID: pid_t,
         currentProcessID: pid_t = ProcessInfo.processInfo.processIdentifier
@@ -274,13 +281,26 @@ enum AccessibilityHelper {
             focusedWindowID: focusedAfterRaise,
             targetWindowID: window.id
         ) {
+            // When activating an inactive app, pre-seed AX focus so activation is
+            // less likely to land on a stale window in another Space.
+            if !appIsActive {
+                setMain(elementToRaise)
+                setFocusedWindow(elementToRaise, appPID: window.ownerPID)
+            }
+
             if useNSAppActivation {
                 activateCurrentApp()
             } else if let app = appForActivation {
                 activate(app)
             }
 
-            raise(elementToRaise)
+            let focusedAfterActivation = focusedWindowID(for: window.ownerPID)
+            if shouldRetryRaiseAfterActivation(
+                focusedWindowID: focusedAfterActivation,
+                targetWindowID: window.id
+            ) {
+                raise(elementToRaise)
+            }
 
             // Some same-app multi-window cases ignore raise+activate; set
             // main/focused window attributes as a final accessibility nudge.

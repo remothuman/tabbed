@@ -55,4 +55,31 @@ final class AccessibilityHelperFocusTests: XCTestCase {
             )
         )
     }
+
+    func testShouldRetryRaiseAfterActivationWhenTargetAlreadyFocused() {
+        XCTAssertFalse(
+            AccessibilityHelper.shouldRetryRaiseAfterActivation(
+                focusedWindowID: 42,
+                targetWindowID: 42
+            )
+        )
+    }
+
+    func testShouldRetryRaiseAfterActivationWhenFocusDiffers() {
+        XCTAssertTrue(
+            AccessibilityHelper.shouldRetryRaiseAfterActivation(
+                focusedWindowID: 99,
+                targetWindowID: 42
+            )
+        )
+    }
+
+    func testShouldRetryRaiseAfterActivationWhenFocusUnknown() {
+        XCTAssertTrue(
+            AccessibilityHelper.shouldRetryRaiseAfterActivation(
+                focusedWindowID: nil,
+                targetWindowID: 42
+            )
+        )
+    }
 }

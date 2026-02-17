@@ -1290,6 +1290,9 @@ extension AppDelegate {
         let newIndex = group.windows.firstIndex(where: { $0.id == window.id }) ?? group.windows.count - 1
         group.switchTo(index: newIndex)
         promoteWindowOwnership(windowID: window.id, group: group)
+        if !group.isCycling {
+            group.recordFocus(windowID: window.id)
+        }
         bringTabToFront(window, in: group)
         evaluateAutoCapture()
     }
