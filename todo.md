@@ -7,15 +7,18 @@
 - windows opened with quick switcher do not resize on open, this is bad for mirror tabs
 
 
+- helium launches two windows if already launched
 - 
 
 - terminal command in directory feature (that way you can run cursor ~/dir)
 - later: raycast integration
 
+- close window to the right
 
 
 
 - do a pass on default settings and clean install
+- clean up settings org to make sure not overwhelming for new users
 
 - same app focus issues autogobller
 
