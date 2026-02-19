@@ -136,9 +136,10 @@ extension AppDelegate {
                 setExpectedFrame(group.frame, for: [activeWindow.id])
                 AccessibilityHelper.setFrameAsync(of: activeWindow.element, to: group.frame)
             }
-            focusWindow(activeWindow)
             if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {
-                panel.orderAbove(windowID: activeWindow.id)
+                focusWindow(activeWindow) { panel.orderAbove(windowID: activeWindow.id) }
+            } else {
+                focusWindow(activeWindow)
             }
         case .groupSegment(let group, let windowIDs):
             if let subIndex,
@@ -161,9 +162,10 @@ extension AppDelegate {
                 setExpectedFrame(group.frame, for: [activeWindow.id])
                 AccessibilityHelper.setFrameAsync(of: activeWindow.element, to: group.frame)
             }
-            focusWindow(activeWindow)
             if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {
-                panel.orderAbove(windowID: activeWindow.id)
+                focusWindow(activeWindow) { panel.orderAbove(windowID: activeWindow.id) }
+            } else {
+                focusWindow(activeWindow)
             }
         }
     }

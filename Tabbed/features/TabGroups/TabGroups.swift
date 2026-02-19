@@ -5,7 +5,7 @@ import SwiftUI
 
 extension AppDelegate {
 
-    func focusWindow(_ window: WindowInfo) {
+    func focusWindow(_ window: WindowInfo, completion: (() -> Void)? = nil) {
         Logger.log("[FOCUSDBG] focusWindow begin window=\(window.id) pid=\(window.ownerPID) memberships=\(groupManager.membershipCount(for: window.id))")
         AccessibilityHelper.raiseWindowAsync(window) { [weak self] freshElement in
             guard let self else { return }
@@ -17,6 +17,7 @@ extension AppDelegate {
                     group.windows[idx].element = freshElement
                 }
             }
+            completion?()
         }
     }
 
@@ -1094,12 +1095,14 @@ extension AppDelegate {
     func bringTabToFront(_ window: WindowInfo, in group: TabGroup) {
         guard isGroupOnCurrentSpace(group) else { return }
         let windowID = window.id
-        AccessibilityHelper.raiseWindowAsync(window) { freshElement in
+        let groupID = group.id
+        AccessibilityHelper.raiseWindowAsync(window) { [weak self] freshElement in
+            guard let self else { return }
             if let idx = group.windows.firstIndex(where: { $0.id == windowID }) {
                 group.windows[idx].element = freshElement
             }
+            self.tabBarPanels[groupID]?.orderAbove(windowID: windowID)
         }
-        tabBarPanels[group.id]?.orderAbove(windowID: window.id)
     }
 
     /// Move the tab bar panel to the same Space as the given window, if they differ.

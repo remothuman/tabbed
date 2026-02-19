@@ -249,7 +249,7 @@ final class LauncherEngineTests: XCTestCase {
         })
 
         XCTAssertEqual(windowSections[regularWindow.id], "Windows")
-        XCTAssertEqual(windowSections[mirrorWindow.id], LauncherCandidate.mirrorWindowSectionTitle)
+        XCTAssertEqual(windowSections[mirrorWindow.id], LauncherCandidate.mirrorTabsSectionTitle)
     }
 
     func testAddModeQueryMatchesGroupActions() {
