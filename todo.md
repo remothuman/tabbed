@@ -6,6 +6,11 @@
 - mirror tabs open confuse which group they are in, either make the other group not in mirror tab or something
 - windows opened with quick switcher do not resize on open, this is bad for mirror tabs
 
+- option not to gobble windows that have max dimension smaller than current windowgroup
+
+- autolaunch winodws support -> workspaces + suspend suport
+- autoquit app on 0 windows
+
 
 - helium launches two windows if already launched
 - 

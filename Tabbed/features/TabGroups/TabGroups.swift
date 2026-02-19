@@ -7,10 +7,12 @@ extension AppDelegate {
 
     func focusWindow(_ window: WindowInfo) {
         Logger.log("[FOCUSDBG] focusWindow begin window=\(window.id) pid=\(window.ownerPID) memberships=\(groupManager.membershipCount(for: window.id))")
-        if let freshElement = AccessibilityHelper.raiseWindow(window),
-           !groupManager.groups(for: window.id).isEmpty {
+        AccessibilityHelper.raiseWindowAsync(window) { [weak self] freshElement in
+            guard let self else { return }
+            let groups = self.groupManager.groups(for: window.id)
+            guard !groups.isEmpty else { return }
             Logger.log("[FOCUSDBG] focusWindow refreshedElement window=\(window.id)")
-            for group in groupManager.groups(for: window.id) {
+            for group in groups {
                 if let idx = group.windows.firstIndex(where: { $0.id == window.id }) {
                     group.windows[idx].element = freshElement
                 }
@@ -586,7 +588,7 @@ extension AppDelegate {
         setExpectedFrame(frame, for: group.visibleWindows.map(\.id))
 
         for window in group.visibleWindows {
-            AccessibilityHelper.setFrame(of: window.element, to: frame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: frame)
         }
 
         let panel = TabBarPanel()
@@ -725,7 +727,7 @@ extension AppDelegate {
                 if !others.isEmpty {
                     self.setExpectedFrame(clamped, for: others.map(\.id))
                     for window in others {
-                        AccessibilityHelper.setFrame(of: window.element, to: clamped)
+                        AccessibilityHelper.setFrameAsync(of: window.element, to: clamped)
                     }
                 }
             }
@@ -1091,8 +1093,9 @@ extension AppDelegate {
     /// (e.g. QuickSwitcher), use `focusWindow(_:)` directly instead.
     func bringTabToFront(_ window: WindowInfo, in group: TabGroup) {
         guard isGroupOnCurrentSpace(group) else { return }
-        if let freshElement = AccessibilityHelper.raiseWindow(window) {
-            if let idx = group.windows.firstIndex(where: { $0.id == window.id }) {
+        let windowID = window.id
+        AccessibilityHelper.raiseWindowAsync(window) { freshElement in
+            if let idx = group.windows.firstIndex(where: { $0.id == windowID }) {
                 group.windows[idx].element = freshElement
             }
         }
@@ -1141,7 +1144,7 @@ extension AppDelegate {
         }
 
         setExpectedFrame(group.frame, for: [window.id])
-        AccessibilityHelper.setFrame(of: window.element, to: group.frame)
+        AccessibilityHelper.setFrameAsync(of: window.element, to: group.frame)
 
         bringTabToFront(window, in: group)
     }
@@ -1171,11 +1174,11 @@ extension AppDelegate {
                     let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
                     let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
                     let element = window.element
-                    AccessibilityHelper.setSize(of: element, to: expanded.size)
-                    AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+                    AccessibilityHelper.setSizeAsync(of: element, to: expanded.size)
+                    AccessibilityHelper.setPositionAsync(of: element, to: expanded.origin)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        AccessibilityHelper.setPosition(of: element, to: expanded.origin)
-                        AccessibilityHelper.setSize(of: element, to: expanded.size)
+                        AccessibilityHelper.setPositionAsync(of: element, to: expanded.origin)
+                        AccessibilityHelper.setSizeAsync(of: element, to: expanded.size)
                     }
                 }
             }
@@ -1215,7 +1218,7 @@ extension AppDelegate {
         expectedFrames.removeValue(forKey: window.id)
 
         let isSharedWindow = groupManager.membershipCount(for: window.id) > 1
-        AccessibilityHelper.closeWindow(window.element)
+        AccessibilityHelper.closeWindowAsync(window.element)
         if isSharedWindow {
             removeWindowFromAllGroups(windowID: window.id)
         } else {
@@ -1290,7 +1293,7 @@ extension AppDelegate {
         }
         mruTracker.removeWindow(window.id)
         setExpectedFrame(group.frame, for: [window.id])
-        AccessibilityHelper.setFrame(of: window.element, to: group.frame)
+        AccessibilityHelper.setFrameAsync(of: window.element, to: group.frame)
         // Use explicit index if provided, otherwise insert after active for same-app or auto-capture
         let insertionIndex: Int?
         if let explicitIndex {
@@ -1652,7 +1655,7 @@ extension AppDelegate {
             if !lastWindow.isFullscreened, group.tabBarSqueezeDelta > 0,
                let lastFrame = AccessibilityHelper.getFrame(of: lastWindow.element) {
                 let expandedFrame = ScreenCompensation.expandFrame(lastFrame, undoingSqueezeDelta: group.tabBarSqueezeDelta)
-                AccessibilityHelper.setFrame(of: lastWindow.element, to: expandedFrame)
+                AccessibilityHelper.setFrameAsync(of: lastWindow.element, to: expandedFrame)
             }
         }
         panel.close()
@@ -1681,7 +1684,7 @@ extension AppDelegate {
             if !window.isFullscreened, group.tabBarSqueezeDelta > 0,
                let frame = AccessibilityHelper.getFrame(of: window.element) {
                 let expandedFrame = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: group.tabBarSqueezeDelta)
-                AccessibilityHelper.setFrame(of: window.element, to: expandedFrame)
+                AccessibilityHelper.setFrameAsync(of: window.element, to: expandedFrame)
             }
         }
 
@@ -1712,7 +1715,7 @@ extension AppDelegate {
 
         for window in group.managedWindows {
             expectedFrames.removeValue(forKey: window.id)
-            AccessibilityHelper.closeWindow(window.element)
+            AccessibilityHelper.closeWindowAsync(window.element)
         }
 
         let windowsToMaybeUnobserve = group.managedWindows
@@ -1787,7 +1790,7 @@ extension AppDelegate {
         // Add all source windows to target group
         for (offset, window) in windowsToMerge.enumerated() {
             setExpectedFrame(target.frame, for: [window.id])
-            AccessibilityHelper.setFrame(of: window.element, to: target.frame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: target.frame)
             let index = insertAt.map { $0 + offset }
             _ = groupManager.addWindow(window, to: target, at: index, allowSharedMembership: true)
         }
@@ -1919,7 +1922,7 @@ extension AppDelegate {
         let allIDs = group.visibleWindows.map(\.id)
         setExpectedFrame(newFrame, for: allIDs)
         for window in group.visibleWindows {
-            AccessibilityHelper.setPosition(of: window.element, to: newFrame.origin)
+            AccessibilityHelper.setPositionAsync(of: window.element, to: newFrame.origin)
         }
     }
 
@@ -1931,7 +1934,7 @@ extension AppDelegate {
         let allIDs = group.visibleWindows.map(\.id)
         setExpectedFrame(group.frame, for: allIDs)
         for window in group.visibleWindows {
-            AccessibilityHelper.setFrame(of: window.element, to: group.frame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: group.frame)
         }
 
         // Apply clamping in case group was dragged near top of screen
@@ -1948,7 +1951,7 @@ extension AppDelegate {
             let others = group.visibleWindows.filter { $0.id != activeWindow.id }
             setExpectedFrame(adjustedFrame, for: others.map(\.id))
             for window in others {
-                AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
+                AccessibilityHelper.setFrameAsync(of: window.element, to: adjustedFrame)
             }
         }
 
@@ -1988,7 +1991,7 @@ extension AppDelegate {
         let allIDs = group.visibleWindows.map(\.id)
         setExpectedFrame(frame, for: allIDs)
         for window in group.visibleWindows {
-            AccessibilityHelper.setFrame(of: window.element, to: frame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: frame)
         }
         panel.positionAbove(windowFrame: frame, isMaximized: isGroupMaximized(group).0)
         if let activeWindow = group.activeWindow {
@@ -2120,7 +2123,7 @@ extension AppDelegate {
                 windowToInsert.isPinned = true
             }
             setExpectedFrame(targetGroup.frame, for: [window.id])
-            AccessibilityHelper.setFrame(of: window.element, to: targetGroup.frame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: targetGroup.frame)
             _ = groupManager.addWindow(
                 windowToInsert,
                 to: targetGroup,
@@ -2158,11 +2161,11 @@ extension AppDelegate {
                 let delta = max(group.tabBarSqueezeDelta, ScreenCompensation.tabBarHeight)
                 let expanded = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
                 let element = window.element
-                AccessibilityHelper.setSize(of: element, to: expanded.size)
-                AccessibilityHelper.setPosition(of: element, to: expanded.origin)
+                AccessibilityHelper.setSizeAsync(of: element, to: expanded.size)
+                AccessibilityHelper.setPositionAsync(of: element, to: expanded.origin)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    AccessibilityHelper.setPosition(of: element, to: expanded.origin)
-                    AccessibilityHelper.setSize(of: element, to: expanded.size)
+                    AccessibilityHelper.setPositionAsync(of: element, to: expanded.origin)
+                    AccessibilityHelper.setSizeAsync(of: element, to: expanded.size)
                 }
             }
         }
@@ -2178,7 +2181,7 @@ extension AppDelegate {
 
         // Raise the first released window so it becomes focused
         if let first = fullyReleasedWindows.first {
-            _ = AccessibilityHelper.raiseWindow(first)
+            AccessibilityHelper.raiseWindowAsync(first)
         }
 
         if !groupManager.groups.contains(where: { $0.id == group.id }) {
@@ -2226,7 +2229,7 @@ extension AppDelegate {
         let windowsToClose = group.managedWindows.filter { ids.contains($0.id) }
         for window in windowsToClose {
             expectedFrames.removeValue(forKey: window.id)
-            AccessibilityHelper.closeWindow(window.element)
+            AccessibilityHelper.closeWindowAsync(window.element)
             removeWindowFromAllGroups(windowID: window.id)
         }
 

@@ -353,7 +353,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             for window in group.managedWindows {
                 if !window.isFullscreened, let frame = AccessibilityHelper.getFrame(of: window.element) {
                     let expandedFrame = ScreenCompensation.expandFrame(frame, undoingSqueezeDelta: delta)
-                    AccessibilityHelper.setFrame(of: window.element, to: expandedFrame)
+                    AccessibilityHelper.setFrameAsync(of: window.element, to: expandedFrame)
                 }
             }
         }

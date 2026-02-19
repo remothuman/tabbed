@@ -9,6 +9,34 @@ enum AccessibilityHelper {
     /// Timeout for AX calls to avoid blocking the main thread when target apps are slow.
     private static let axMessagingTimeout: Float = 0.5
 
+    /// Serial queue for AX operations that must not block the main thread.
+    private static let axQueue = DispatchQueue(label: "com.tabbed.ax", qos: .userInitiated)
+
+    static func setPositionAsync(of element: AXUIElement, to point: CGPoint) {
+        axQueue.async { setPosition(of: element, to: point) }
+    }
+
+    static func setSizeAsync(of element: AXUIElement, to size: CGSize) {
+        axQueue.async { setSize(of: element, to: size) }
+    }
+
+    static func setFrameAsync(of element: AXUIElement, to frame: CGRect) {
+        axQueue.async { setFrame(of: element, to: frame) }
+    }
+
+    static func closeWindowAsync(_ element: AXUIElement) {
+        axQueue.async { closeWindow(element) }
+    }
+
+    static func raiseWindowAsync(_ window: WindowInfo, completion: ((AXUIElement) -> Void)? = nil) {
+        axQueue.async {
+            guard let freshElement = raiseWindow(window) else { return }
+            if let completion {
+                DispatchQueue.main.async { completion(freshElement) }
+            }
+        }
+    }
+
     private static func setMessagingTimeout(_ element: AXUIElement) {
         AXUIElementSetMessagingTimeout(element, axMessagingTimeout)
     }
@@ -163,7 +191,7 @@ enum AccessibilityHelper {
     // MARK: - Write Attributes
 
     @discardableResult
-    static func setPosition(of element: AXUIElement, to point: CGPoint) -> AXError {
+    private static func setPosition(of element: AXUIElement, to point: CGPoint) -> AXError {
         setMessagingTimeout(element)
         var mutablePoint = point
         guard let value = AXValueCreate(.cgPoint, &mutablePoint) else { return .failure }
@@ -171,14 +199,14 @@ enum AccessibilityHelper {
     }
 
     @discardableResult
-    static func setSize(of element: AXUIElement, to size: CGSize) -> AXError {
+    private static func setSize(of element: AXUIElement, to size: CGSize) -> AXError {
         setMessagingTimeout(element)
         var mutableSize = size
         guard let value = AXValueCreate(.cgSize, &mutableSize) else { return .failure }
         return AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
     }
 
-    static func setFrame(of element: AXUIElement, to frame: CGRect) {
+    private static func setFrame(of element: AXUIElement, to frame: CGRect) {
         // Position first so the window is at the target origin before resizing.
         // Size-first can cause the window to temporarily extend off-screen at
         // the old position, leading apps to constrain the size incorrectly.
@@ -240,7 +268,7 @@ enum AccessibilityHelper {
 
     /// Press the close button on a window (equivalent to clicking the red traffic light).
     @discardableResult
-    static func closeWindow(_ element: AXUIElement) -> Bool {
+    private static func closeWindow(_ element: AXUIElement) -> Bool {
         setMessagingTimeout(element)
         var buttonRef: AnyObject?
         let result = AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &buttonRef)
@@ -256,7 +284,7 @@ enum AccessibilityHelper {
     /// Returns a fresh AXUIElement if one was resolved (caller should update
     /// the group's stored element), or nil if the original was fine.
     @discardableResult
-    static func raiseWindow(_ window: WindowInfo) -> AXUIElement? {
+    private static func raiseWindow(_ window: WindowInfo) -> AXUIElement? {
         // Raise the target window BEFORE activating the app so the correct
         // window is already in front when the app comes forward, avoiding a
         // brief flash of whatever window the app had focused previously.

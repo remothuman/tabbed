@@ -28,14 +28,14 @@ extension AppDelegate {
                                      width: frame.width, height: frame.height)
             Logger.log("[CLAMP] re-push wid=\(windowID) frame=\(frame) → y=\(targetY) (height unchanged)")
             setExpectedFrame(targetFrame, for: [windowID])
-            AccessibilityHelper.setPosition(of: element, to: targetFrame.origin)
+            AccessibilityHelper.setPositionAsync(of: element, to: targetFrame.origin)
             return (targetFrame, existingSqueezeDelta)
         }
 
         // First-time squeeze: push position down and shrink height.
         Logger.log("[CLAMP] squeeze wid=\(windowID) frame=\(frame) → \(result.frame) delta=\(result.squeezeDelta)")
         setExpectedFrame(result.frame, for: [windowID])
-        AccessibilityHelper.setFrame(of: element, to: result.frame)
+        AccessibilityHelper.setFrameAsync(of: element, to: result.frame)
 
         // Quick re-check: some apps accept the position synchronously but
         // revert it asynchronously (~50-200ms). Catch it fast so the user
@@ -49,7 +49,7 @@ extension AppDelegate {
             Logger.log("[CLAMP] quick re-push wid=\(windowID) actual=\(actual) → y=\(target.origin.y)")
             self.expectedFrames.removeValue(forKey: windowID)
             self.setExpectedFrame(target, for: [windowID])
-            AccessibilityHelper.setPosition(of: element, to: target.origin)
+            AccessibilityHelper.setPositionAsync(of: element, to: target.origin)
         }
 
         return (result.frame, delta)
@@ -144,7 +144,7 @@ extension AppDelegate {
         let others = group.visibleWindows.filter { $0.id != windowID }
         setExpectedFrame(adjustedFrame, for: others.map(\.id))
         for window in others {
-            AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: adjustedFrame)
         }
 
         panel.positionAbove(windowFrame: adjustedFrame, isMaximized: isGroupMaximized(group).0)
@@ -236,7 +236,7 @@ extension AppDelegate {
         let others = group.visibleWindows.filter { $0.id != windowID }
         setExpectedFrame(adjustedFrame, for: others.map(\.id))
         for window in others {
-            AccessibilityHelper.setFrame(of: window.element, to: adjustedFrame)
+            AccessibilityHelper.setFrameAsync(of: window.element, to: adjustedFrame)
         }
 
         panel.positionAbove(windowFrame: adjustedFrame, isMaximized: isGroupMaximized(group).0)
@@ -281,7 +281,7 @@ extension AppDelegate {
             let others = group.visibleWindows.filter { $0.id != activeWindow.id }
             self.setExpectedFrame(clamped, for: others.map(\.id))
             for window in others {
-                AccessibilityHelper.setFrame(of: window.element, to: clamped)
+                AccessibilityHelper.setFrameAsync(of: window.element, to: clamped)
             }
             panel.positionAbove(windowFrame: clamped, isMaximized: self.isGroupMaximized(group).0)
             panel.orderAbove(windowID: activeWindow.id)
@@ -572,7 +572,7 @@ extension AppDelegate {
 
             let element = group.windows[idx].element
             self.setExpectedFrame(targetFrame, for: [windowID])
-            AccessibilityHelper.setFrame(of: element, to: targetFrame)
+            AccessibilityHelper.setFrameAsync(of: element, to: targetFrame)
             self.bringTabToFront(group.windows[idx], in: group)
         }
     }

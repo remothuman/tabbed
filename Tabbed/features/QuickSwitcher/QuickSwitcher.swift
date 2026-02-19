@@ -134,7 +134,7 @@ extension AppDelegate {
             group.recordFocus(windowID: activeWindow.id)
             if !activeWindow.isFullscreened {
                 setExpectedFrame(group.frame, for: [activeWindow.id])
-                AccessibilityHelper.setFrame(of: activeWindow.element, to: group.frame)
+                AccessibilityHelper.setFrameAsync(of: activeWindow.element, to: group.frame)
             }
             focusWindow(activeWindow)
             if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {
@@ -159,7 +159,7 @@ extension AppDelegate {
             group.recordFocus(windowID: activeWindow.id)
             if !activeWindow.isFullscreened {
                 setExpectedFrame(group.frame, for: [activeWindow.id])
-                AccessibilityHelper.setFrame(of: activeWindow.element, to: group.frame)
+                AccessibilityHelper.setFrameAsync(of: activeWindow.element, to: group.frame)
             }
             focusWindow(activeWindow)
             if !activeWindow.isFullscreened, let panel = tabBarPanels[group.id] {
