@@ -4,6 +4,29 @@ import AppKit
 
 extension AppDelegate {
 
+    func noteRecentExternalActivation(windowID: CGWindowID, at date: Date = Date()) {
+        recentExternalActivationWindowID = windowID
+        recentExternalActivationAt = date
+    }
+
+    func shouldForceSynchronousInventoryRefreshForRecentExternalActivation(now: Date = Date()) -> Bool {
+        guard let windowID = recentExternalActivationWindowID,
+              let activationAt = recentExternalActivationAt else { return false }
+        if now.timeIntervalSince(activationAt) > Self.recentExternalActivationLifetime {
+            recentExternalActivationWindowID = nil
+            recentExternalActivationAt = nil
+            return false
+        }
+        return !windowInventory.cachedAllSpacesWindows.contains(where: { $0.id == windowID })
+    }
+
+    func clearRecentExternalActivationIfVisible(in windows: [WindowInfo]) {
+        guard let windowID = recentExternalActivationWindowID else { return }
+        guard windows.contains(where: { $0.id == windowID }) else { return }
+        recentExternalActivationWindowID = nil
+        recentExternalActivationAt = nil
+    }
+
     func beginCommitEchoSuppression(targetWindowID: CGWindowID, source: String = "unspecified") {
         pendingCommitEchoTargetWindowID = targetWindowID
         pendingCommitEchoDeadline = Date().addingTimeInterval(Self.commitEchoSuppressionTimeout)
@@ -58,7 +81,11 @@ extension AppDelegate {
             return
         }
 
+        if shouldForceSynchronousInventoryRefreshForRecentExternalActivation() {
+            windowInventory.refreshSync(force: true)
+        }
         let zWindows = windowInventory.allSpacesForSwitcher()
+        clearRecentExternalActivationIfVisible(in: zWindows)
         guard !zWindows.isEmpty else {
             Logger.log("[GS] inventory empty; refresh in progress")
             return

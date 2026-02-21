@@ -309,6 +309,7 @@ extension AppDelegate {
         let suppressGroupState = switcherController.isActive || commitEchoSuppressed
         Logger.log("[FOCUSDBG] event=\(eventID) type=windowFocused pid=\(pid) window=\(windowID) group=\(group.id) switcherActive=\(switcherController.isActive) commitEchoSuppressed=\(commitEchoSuppressed) suppressGroupState=\(suppressGroupState) lastActiveGroup=\(lastActiveGroupID?.uuidString ?? "nil")")
         if !suppressGroupState {
+            recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
             let previousID = group.activeWindow?.id
             if previousID != windowID {
                 Logger.log("[DEBUG] handleWindowFocused: switching \(previousID.map(String.init) ?? "nil") → \(windowID) (pid=\(pid))")
@@ -386,26 +387,74 @@ extension AppDelegate {
         }
     }
 
-    @objc func handleAppActivated(_ notification: Notification) {
-        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        let pid = app.processIdentifier
+    func resolveActivatedWindowID(
+        forAppPID pid: pid_t,
+        fallbackCurrentSpaceWindows: [WindowInfo]? = nil,
+        fallbackCachedWindows: [WindowInfo]? = nil
+    ) -> CGWindowID? {
+        if let windowElement = AccessibilityHelper.focusedWindowElement(forAppPID: pid),
+           let windowID = AccessibilityHelper.windowID(for: windowElement) {
+            return windowID
+        }
 
-        guard let windowElement = AccessibilityHelper.focusedWindowElement(forAppPID: pid) else { return }
-        guard let windowID = AccessibilityHelper.windowID(for: windowElement) else { return }
+        let currentSpaceWindows = fallbackCurrentSpaceWindows ?? WindowDiscovery.currentSpace()
+        if let frontmostForPID = currentSpaceWindows.first(where: { $0.ownerPID == pid }) {
+            return frontmostForPID.id
+        }
+
+        let cachedWindows = fallbackCachedWindows ?? windowInventory.cachedAllSpacesWindows
+        return cachedWindows.first(where: { $0.ownerPID == pid })?.id
+    }
+
+    func scheduleAppActivationRetry(app: NSRunningApplication, attempt: Int) {
+        guard attempt < Self.externalActivationRetryDelays.count else {
+            pendingActivationRetryToken = nil
+            pendingActivationRetryWorkItem = nil
+            return
+        }
+        let token = UUID()
+        let delay = Self.externalActivationRetryDelays[attempt]
+        pendingActivationRetryWorkItem?.cancel()
+        pendingActivationRetryToken = token
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.pendingActivationRetryToken == token else { return }
+            self.handleResolvedAppActivation(app: app, retryAttempt: attempt + 1)
+        }
+        pendingActivationRetryWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    func handleResolvedAppActivation(app: NSRunningApplication, retryAttempt: Int) {
+        let pid = app.processIdentifier
+        guard let windowID = resolveActivatedWindowID(forAppPID: pid) else {
+            Logger.log("[FOCUSDBG] appActivated unresolved app=\(app.localizedName ?? "?") pid=\(pid) attempt=\(retryAttempt)")
+            scheduleAppActivationRetry(app: app, attempt: retryAttempt)
+            return
+        }
+
+        pendingActivationRetryWorkItem?.cancel()
+        pendingActivationRetryWorkItem = nil
+        pendingActivationRetryToken = nil
+
         windowInventory.refreshAsync()
         let eventID = nextFocusDiagnosticSequence()
 
         let commitEchoSuppressed = shouldSuppressCommitEcho(for: windowID)
         let suppressGroupState = switcherController.isActive || commitEchoSuppressed
-        Logger.log("[FOCUSDBG] event=\(eventID) type=appActivated app=\(app.localizedName ?? "?") pid=\(pid) window=\(windowID) switcherActive=\(switcherController.isActive) commitEchoSuppressed=\(commitEchoSuppressed) suppressGroupState=\(suppressGroupState) lastActiveGroup=\(lastActiveGroupID?.uuidString ?? "nil")")
+        Logger.log("[FOCUSDBG] event=\(eventID) type=appActivated app=\(app.localizedName ?? "?") pid=\(pid) window=\(windowID) switcherActive=\(switcherController.isActive) commitEchoSuppressed=\(commitEchoSuppressed) suppressGroupState=\(suppressGroupState) lastActiveGroup=\(lastActiveGroupID?.uuidString ?? "nil") retryAttempt=\(retryAttempt)")
 
-        // Record entity-level MRU (skip during active switcher sessions and commit echoes)
-        if !suppressGroupState {
+        // Record MRU for external app/window activation even if group-state
+        // mutations are suppressed by commit-echo handling.
+        if !switcherController.isActive {
             if let group = ownerGroup(for: windowID, source: "appActivated-mru") {
                 recordGlobalActivation(.groupWindow(groupID: group.id, windowID: windowID))
             } else {
                 recordGlobalActivation(.window(windowID))
             }
+        }
+
+        if !commitEchoSuppressed && !switcherController.isActive {
+            noteRecentExternalActivation(windowID: windowID)
         }
 
         // Group state updates
@@ -438,6 +487,14 @@ extension AppDelegate {
         }
         Logger.log("[FOCUSDBG] event=\(eventID) type=appActivated panelOrdering=apply window=\(windowID)")
         orderPanelAboveFromFocusEvent(panel, windowID: windowID, source: "appActivated#\(eventID)")
+    }
+
+    @objc func handleAppActivated(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        pendingActivationRetryWorkItem?.cancel()
+        pendingActivationRetryWorkItem = nil
+        pendingActivationRetryToken = nil
+        handleResolvedAppActivation(app: app, retryAttempt: 0)
     }
 
     // MARK: - Space Change Handler

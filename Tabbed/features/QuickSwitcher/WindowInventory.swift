@@ -12,7 +12,8 @@ final class WindowInventory {
 
     private(set) var cachedAllSpacesWindows: [WindowInfo] = []
     private(set) var lastRefreshAt: Date?
-    private var refreshInFlight = false
+    private var asyncRefreshInFlight = false
+    private var refreshVersion: UInt64 = 0
     var hasCompletedRefresh: Bool { lastRefreshAt != nil }
 
     init(
@@ -35,20 +36,21 @@ final class WindowInventory {
     }
 
     /// Force a synchronous cache fill/update.
-    func refreshSync() {
-        guard !refreshInFlight else { return }
-        refreshInFlight = true
-        applyRefreshResult(discoverAllSpaces())
+    func refreshSync(force: Bool = false) {
+        guard !asyncRefreshInFlight || force else { return }
+        let version = nextRefreshVersion()
+        applyRefreshResult(discoverAllSpaces(), version: version, fromAsync: false)
     }
 
     /// Refresh cache in the background when no refresh is currently running.
     func refreshAsync() {
-        guard !refreshInFlight else { return }
-        refreshInFlight = true
+        guard !asyncRefreshInFlight else { return }
+        asyncRefreshInFlight = true
+        let version = nextRefreshVersion()
         DispatchQueue.global(qos: .userInitiated).async { [discoverAllSpaces] in
             let windows = discoverAllSpaces()
             DispatchQueue.main.async { [weak self] in
-                self?.applyRefreshResult(windows)
+                self?.applyRefreshResult(windows, version: version, fromAsync: true)
             }
         }
     }
@@ -58,9 +60,17 @@ final class WindowInventory {
         return now().timeIntervalSince(lastRefreshAt) >= staleAfter
     }
 
-    private func applyRefreshResult(_ windows: [WindowInfo]) {
+    private func nextRefreshVersion() -> UInt64 {
+        refreshVersion &+= 1
+        return refreshVersion
+    }
+
+    private func applyRefreshResult(_ windows: [WindowInfo], version: UInt64, fromAsync: Bool) {
+        if fromAsync {
+            asyncRefreshInFlight = false
+        }
+        guard version == refreshVersion else { return }
         cachedAllSpacesWindows = windows
         lastRefreshAt = now()
-        refreshInFlight = false
     }
 }

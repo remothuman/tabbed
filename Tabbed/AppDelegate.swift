@@ -54,6 +54,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var pendingCommitEchoDeadline: Date?
     var pendingCommitEchoSource: String?
     static let commitEchoSuppressionTimeout: TimeInterval = 1.0
+    static let externalActivationRetryDelays: [TimeInterval] = [0.05, 0.15, 0.3]
+    static let recentExternalActivationLifetime: TimeInterval = 2.0
     /// Monotonic token used to discard stale deferred panel ordering callbacks.
     var focusDrivenPanelOrderGeneration: UInt64 = 0
     /// Monotonic sequence for correlating focus diagnostics across callbacks.
@@ -62,6 +64,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var onFocusPanelOrdered: ((CGWindowID) -> Void)?
     var mruTracker = MRUTracker()
     var windowInventory = WindowInventory()
+    var pendingActivationRetryToken: UUID?
+    var pendingActivationRetryWorkItem: DispatchWorkItem?
+    var recentExternalActivationWindowID: CGWindowID?
+    var recentExternalActivationAt: Date?
     /// Set during tab bar drag to suppress window move/resize handlers for the dragged group.
     var barDraggingGroupID: UUID?
     /// Group frame at bar drag start, for absolute positioning.

@@ -101,4 +101,42 @@ final class WindowInventoryTests: XCTestCase {
         inventory.refreshSync()
         XCTAssertTrue(inventory.hasCompletedRefresh)
     }
+
+    func testForcedSyncRefreshWinsOverOlderAsyncCompletion() {
+        let asyncStarted = expectation(description: "async refresh started")
+        let allowAsyncCompletion = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var discoverCallCount = 0
+
+        let inventory = WindowInventory(
+            staleAfter: 60,
+            discoverAllSpaces: {
+                lock.lock()
+                discoverCallCount += 1
+                let call = discoverCallCount
+                lock.unlock()
+
+                if call == 1 {
+                    asyncStarted.fulfill()
+                    _ = allowAsyncCompletion.wait(timeout: .now() + 1.0)
+                    return [self.makeWindow(id: 1)]
+                }
+                return [self.makeWindow(id: 2)]
+            }
+        )
+
+        inventory.refreshAsync()
+        wait(for: [asyncStarted], timeout: 1.0)
+
+        inventory.refreshSync(force: true)
+        XCTAssertEqual(inventory.cachedAllSpacesWindows.map(\.id), [2])
+
+        allowAsyncCompletion.signal()
+        let settled = expectation(description: "stale async completion ignored")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 1.0)
+        XCTAssertEqual(inventory.cachedAllSpacesWindows.map(\.id), [2])
+    }
 }
